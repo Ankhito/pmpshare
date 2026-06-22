@@ -128,7 +128,7 @@ public sealed class MainWindow : Window, IDisposable
         if (sendFromPenumbraMod)
         {
             DrawPenumbraModSelector();
-            ImGui.InputText("Export folder", ref penumbraExportFolder, 1024);
+            DrawTextInput("Export folder", "Folder where Penumbra exported .pmp files are saved", ref penumbraExportFolder, 1024);
             if (ImGui.Button("Find Exported PMP"))
             {
                 foundExportedPmp = FindExportedPmp(selectedModName, penumbraExportFolder) ?? string.Empty;
@@ -151,15 +151,13 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextWrapped($"Found exported PMP: {foundExportedPmp}");
         }
 
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("Existing .pmp file", ref uploadPlaintextPath, 1024))
+        if (DrawTextInput("PMP file to send", @"C:\path\to\mod.pmp", ref uploadPlaintextPath, 1024))
         {
             configuration.LastUploadPath = uploadPlaintextPath;
             configuration.Save();
         }
 
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("Passphrase", ref uploadPassphrase, 512, ImGuiInputTextFlags.Password);
+        DrawTextInput("Transfer passphrase", "Local password used to encrypt this upload", ref uploadPassphrase, 512, ImGuiInputTextFlags.Password);
         var selectedContact = DrawContactSelector();
         if (selectedContact is not null)
         {
@@ -202,17 +200,14 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawReceiveTab()
     {
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("Transfer ID", ref downloadTransferId, 128);
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("Staging/output directory", ref downloadDirectory, 1024))
+        DrawTextInput("Transfer ID", "32-character code from a manual share", ref downloadTransferId, 128);
+        if (DrawTextInput("Save decrypted PMP to", @"C:\Users\you\Desktop\PmpShare", ref downloadDirectory, 1024))
         {
             configuration.LastDownloadDirectory = downloadDirectory;
             configuration.Save();
         }
 
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("Passphrase", ref downloadPassphrase, 512, ImGuiInputTextFlags.Password);
+        DrawTextInput("Transfer passphrase", "Required only for manual transfer IDs", ref downloadPassphrase, 512, ImGuiInputTextFlags.Password);
         if (DrawActionButton("Download / Decrypt / Verify", CanStartOperation()) && ValidateDownloadInputs())
         {
             StartOperation(async token => await DownloadDecryptAndVerifyAsync(token).ConfigureAwait(false));
@@ -260,9 +255,8 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawContactsTab()
     {
-        ImGui.InputText("Display name", ref contactName, 128);
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("PmpShare identity", ref contactIdentity, 256);
+        DrawTextInput("Display name", "Friendly name for this contact", ref contactName, 128);
+        DrawTextInput("PmpShare identity", "Paste ps_xxx.publicKeyBase64 from their Status tab", ref contactIdentity, 256);
         if (ImGui.Button("Add contact"))
         {
             if (string.IsNullOrWhiteSpace(contactName) || string.IsNullOrWhiteSpace(contactIdentity))
@@ -332,15 +326,13 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawSettingsTab()
     {
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("API base URL", ref apiBaseUrl, 512))
+        if (DrawTextInput("API base URL", "https://pmpshare-api.contact-theankh.workers.dev", ref apiBaseUrl, 512))
         {
             configuration.ApiBaseUrl = apiBaseUrl.Trim();
             configuration.Save();
         }
 
-        ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("Tester key (memory only)", ref testerKey, 512, ImGuiInputTextFlags.Password);
+        DrawTextInput("Tester key", "Private Worker tester key; kept in memory only", ref testerKey, 512, ImGuiInputTextFlags.Password);
 
         var autoImport = configuration.AutoImportToPenumbraAfterReceive;
         if (ImGui.Checkbox("Auto import to Penumbra after receive", ref autoImport))
@@ -367,8 +359,7 @@ public sealed class MainWindow : Window, IDisposable
             configuration.Save();
         }
 
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("Penumbra export folder", ref penumbraExportFolder, 1024))
+        if (DrawTextInput("Penumbra export folder", "Folder where Penumbra writes exported .pmp files", ref penumbraExportFolder, 1024))
         {
             configuration.PenumbraExportFolder = penumbraExportFolder;
             configuration.Save();
@@ -699,6 +690,22 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.EndDisabled();
         }
         return enabled && clicked;
+    }
+
+    private static bool DrawTextInput(
+        string label,
+        string hint,
+        ref string value,
+        int maxLength,
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None)
+    {
+        ImGui.TextUnformatted(label);
+        ImGui.TextDisabled(hint);
+        ImGui.SetNextItemWidth(-1);
+        var changed = flags == ImGuiInputTextFlags.None
+            ? ImGui.InputText($"##{label}", ref value, maxLength)
+            : ImGui.InputText($"##{label}", ref value, maxLength, flags);
+        return changed;
     }
 
     private void StartOperation(Func<CancellationToken, Task> operation)
