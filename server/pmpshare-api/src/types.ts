@@ -35,6 +35,9 @@ export interface SendRequestMetadata {
   recipientId: string;
   senderDisplayName?: string;
   transferId?: string;
+  senderPublicKey?: string;
+  encryptedPassphrase?: string;
+  encryptedPassphraseNonce?: string;
   message?: string;
   createdAt: string;
   expiresAt: string;

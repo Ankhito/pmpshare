@@ -43,6 +43,9 @@ export async function createSendRequest(
     recipientId: input.recipientId,
     senderDisplayName: input.senderDisplayName,
     transferId: input.transferId,
+    senderPublicKey: input.senderPublicKey,
+    encryptedPassphrase: input.encryptedPassphrase,
+    encryptedPassphraseNonce: input.encryptedPassphraseNonce,
     message: input.message,
     createdAt: now.toISOString(),
     expiresAt,
@@ -181,6 +184,9 @@ interface CreateSendRequestInput {
   recipientId: string;
   senderDisplayName?: string;
   transferId?: string;
+  senderPublicKey?: string;
+  encryptedPassphrase?: string;
+  encryptedPassphraseNonce?: string;
   message?: string;
   expiresInSeconds: number;
 }
@@ -199,6 +205,35 @@ function validateCreateSendRequest(body: unknown): CreateSendRequestInput {
   const transferId = optionalString(record.transferId, "transferId");
   if (transferId && !/^[a-f0-9]{32}$/.test(transferId)) {
     throw new Error("transferId must be a valid transfer id when provided.");
+  }
+
+  const senderPublicKey = optionalString(record.senderPublicKey, "senderPublicKey");
+  const encryptedPassphrase = optionalString(record.encryptedPassphrase, "encryptedPassphrase");
+  const encryptedPassphraseNonce = optionalString(
+    record.encryptedPassphraseNonce,
+    "encryptedPassphraseNonce",
+  );
+  const hasPassphraseEnvelope =
+    senderPublicKey !== undefined ||
+    encryptedPassphrase !== undefined ||
+    encryptedPassphraseNonce !== undefined;
+  if (hasPassphraseEnvelope) {
+    if (!senderPublicKey || !encryptedPassphrase || !encryptedPassphraseNonce) {
+      throw new Error(
+        "senderPublicKey, encryptedPassphrase, and encryptedPassphraseNonce must be provided together.",
+      );
+    }
+    if (!isBase64OfLength(senderPublicKey, 32)) {
+      throw new Error("senderPublicKey must be a base64-encoded X25519 public key.");
+    }
+    if (!isBase64OfLength(encryptedPassphraseNonce, 12)) {
+      throw new Error(
+        "encryptedPassphraseNonce must be a base64-encoded AES-GCM nonce.",
+      );
+    }
+    if (!isBase64InRange(encryptedPassphrase, 17, 256)) {
+      throw new Error("encryptedPassphrase must be a valid base64 envelope.");
+    }
   }
 
   let expiresInSeconds = DEFAULT_SEND_REQUEST_EXPIRY_SECONDS;
@@ -222,6 +257,9 @@ function validateCreateSendRequest(body: unknown): CreateSendRequestInput {
     senderId,
     recipientId,
     transferId,
+    senderPublicKey,
+    encryptedPassphrase,
+    encryptedPassphraseNonce,
     senderDisplayName: optionalString(
       record.senderDisplayName,
       "senderDisplayName",
@@ -251,4 +289,27 @@ function optionalString(value: unknown, name: string): string | undefined {
 
 function isValidPmpShareId(value: string): boolean {
   return /^ps_[A-Za-z0-9_-]{12,80}$/.test(value);
+}
+
+function isBase64OfLength(value: string, expectedDecodedLength: number): boolean {
+  return decodedBase64Length(value) === expectedDecodedLength;
+}
+
+function isBase64InRange(
+  value: string,
+  minDecodedLength: number,
+  maxDecodedLength: number,
+): boolean {
+  const length = decodedBase64Length(value);
+  return length >= minDecodedLength && length <= maxDecodedLength;
+}
+
+function decodedBase64Length(value: string): number {
+  try {
+    return Uint8Array.from(atob(value), (character) =>
+      character.charCodeAt(0),
+    ).length;
+  } catch {
+    return -1;
+  }
 }

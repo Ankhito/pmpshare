@@ -204,7 +204,10 @@ try {
         recipientId = $recipientId
         senderDisplayName = "Local Sender"
         transferId = $transfer.transferId
-        message = "Manual share-code handoff test"
+        senderPublicKey = [Convert]::ToBase64String([byte[]](1..32))
+        encryptedPassphrase = [Convert]::ToBase64String([byte[]](1..32))
+        encryptedPassphraseNonce = [Convert]::ToBase64String([byte[]](1..12))
+        message = "Encrypted passphrase envelope test"
         expiresInSeconds = 10800
     } | ConvertTo-Json
 
@@ -215,6 +218,8 @@ try {
         -ContentType "application/json" `
         -Body $sendRequestBody
     Assert-Equal $sendRequest.status "pending" "Send request status mismatch."
+    Assert-Equal $sendRequest.senderPublicKey ([Convert]::ToBase64String([byte[]](1..32))) "Send request senderPublicKey mismatch."
+    Assert-Equal $sendRequest.encryptedPassphraseNonce ([Convert]::ToBase64String([byte[]](1..12))) "Send request nonce mismatch."
     Write-Host "[pass] created send request"
 
     Write-Host "[test] GET /v1/inbox"

@@ -20,6 +20,10 @@ public sealed class Configuration : IPluginConfiguration
 
     public string PmpShareId { get; set; } = string.Empty;
 
+    public string X25519PublicKeyBase64 { get; set; } = string.Empty;
+
+    public string X25519PrivateKeyBase64 { get; set; } = string.Empty;
+
     public string PenumbraExportFolder { get; set; } = string.Empty;
 
     public bool AutoImportToPenumbraAfterReceive { get; set; }
@@ -35,9 +39,8 @@ public sealed class Configuration : IPluginConfiguration
     public void Initialize(IDalamudPluginInterface dalamudPluginInterface)
     {
         pluginInterface = dalamudPluginInterface;
-        if (string.IsNullOrWhiteSpace(PmpShareId))
+        if (IdentityService.EnsureIdentity(this))
         {
-            PmpShareId = IdentityService.CreatePmpShareId();
             Save();
         }
     }
@@ -54,4 +57,6 @@ public sealed class Contact
     public string DisplayName { get; set; } = string.Empty;
 
     public string PmpShareId { get; set; } = string.Empty;
+
+    public string PublicKeyBase64 { get; set; } = string.Empty;
 }

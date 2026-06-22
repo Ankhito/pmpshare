@@ -18,7 +18,10 @@ Current command:
 - Calls `/complete` only after decrypt succeeds and SHA-256 matches, which deletes the server blob.
 - Can import a verified received `.pmp` through Penumbra IPC.
 - Can list installed Penumbra mods and find matching exported `.pmp` files for sending.
-- Can create and view simple Worker-backed send requests for manually added contacts.
+- Creates a local PmpShare identity with a `ps_...` ID and X25519 keypair.
+- Copies a one-paste identity string in the format `ps_....publicKeyBase64`.
+- Can create and view Worker-backed send requests for manually added contacts.
+- Wraps transfer passphrases locally with X25519 ECDH plus AES-GCM so accepted requests can download, decrypt, and verify without manual passphrase entry.
 
 ## What It Does Not Do Yet
 
@@ -28,8 +31,9 @@ Current command:
 - No public browsing or search.
 - No permanent hosting.
 - No game packet logic.
-- No automatic contact key exchange yet.
+- No automatic contact discovery yet.
 - No raw AES/decryption keys are stored on the Worker.
+- The X25519 private key is stored only in local Dalamud plugin configuration.
 
 ## Penumbra IPC Limits
 
@@ -75,8 +79,9 @@ dotnet run --project .\client\PmpShare.Plugin.Tests\PmpShare.Plugin.Tests.csproj
 
 1. Run `/pmpshare` in game.
 2. Paste the Worker URL and private tester key.
-3. Upload tab: choose a `.pmp`, enter a passphrase, then click `Encrypt and upload`.
-4. Share the transfer ID and passphrase privately.
-5. Download tab: paste the transfer ID and passphrase, choose an output directory, then click `Download and complete`.
+3. Status tab: copy your `PmpShare Identity` and share it privately with a contact.
+4. Contacts tab: add a contact by pasting their combined `ps_....publicKeyBase64` identity.
+5. Upload tab: choose a `.pmp`, enter a passphrase, pick a contact, then click `Create Send Request`.
+6. Receive tab: click `Refresh Inbox`, then `Accept` to unwrap the passphrase locally, download, decrypt, verify, and complete the transfer.
 
-The tester key is kept in memory only and is not saved in plugin configuration. The passphrase is never sent to the Worker.
+The tester key is kept in memory only and is not saved in plugin configuration. The plaintext passphrase is never sent to the Worker; only an AES-GCM envelope encrypted for the recipient's public key is stored with the send request.

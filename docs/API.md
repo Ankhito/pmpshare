@@ -194,7 +194,7 @@ Response: public-safe metadata with `status: "deleted"`.
 
 Auth: tester key required.
 
-Creates a minimal contact/inbox request. This does not contain plaintext file keys. In the current MVP, accepted requests tell the sender to share the transfer ID and passphrase manually through a private channel.
+Creates a contact/inbox request. This does not contain plaintext file keys or plaintext passphrases. The client can include an encrypted passphrase envelope created locally with X25519 ECDH and AES-GCM so the recipient can unwrap it locally after accepting.
 
 Request:
 
@@ -204,10 +204,22 @@ Request:
   "recipientId": "ps_recipient123456789",
   "senderDisplayName": "Sender",
   "transferId": "0123456789abcdef0123456789abcdef",
-  "message": "Ready to send",
+  "senderPublicKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "encryptedPassphrase": "base64-ciphertext-plus-tag",
+  "encryptedPassphraseNonce": "base64-12-byte-nonce",
+  "message": "Encrypted PmpShare transfer",
   "expiresInSeconds": 10800
 }
 ```
+
+Validation:
+
+- `senderId` and `recipientId` must be PmpShare IDs.
+- `transferId`, when present, must be a 32-character lowercase hex transfer ID.
+- `senderPublicKey`, `encryptedPassphrase`, and `encryptedPassphraseNonce` are optional for backwards compatibility, but if any one is present all three must be present.
+- `senderPublicKey` must decode to a 32-byte X25519 public key.
+- `encryptedPassphraseNonce` must decode to a 12-byte AES-GCM nonce.
+- `encryptedPassphrase` is an opaque base64 envelope containing ciphertext plus tag.
 
 Response `201`: send request metadata with `status: "pending"`.
 

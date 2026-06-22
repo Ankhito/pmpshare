@@ -26,7 +26,7 @@ public sealed class MainWindow : Window, IDisposable
     private string downloadPassphrase = string.Empty;
     private string penumbraExportFolder;
     private string contactName = string.Empty;
-    private string contactId = string.Empty;
+    private string contactIdentity = string.Empty;
     private string selectedModDirectory = string.Empty;
     private string selectedModName = string.Empty;
     private string selectedModPath = string.Empty;
@@ -101,9 +101,10 @@ public sealed class MainWindow : Window, IDisposable
     {
         var penumbraStatus = penumbra.CurrentStatus;
         ImGui.TextUnformatted($"My PmpShare ID: {configuration.PmpShareId}");
-        if (ImGui.Button("Copy My PmpShare ID"))
+        ImGui.TextWrapped($"My public key: {configuration.X25519PublicKeyBase64}");
+        if (ImGui.Button("Copy My PmpShare Identity"))
         {
-            ImGui.SetClipboardText(configuration.PmpShareId);
+            ImGui.SetClipboardText(IdentityService.CombinedIdentity(configuration));
         }
 
         ImGui.Separator();
@@ -163,6 +164,10 @@ public sealed class MainWindow : Window, IDisposable
         if (selectedContact is not null)
         {
             ImGui.TextUnformatted($"Selected contact: {selectedContact.DisplayName} ({selectedContact.PmpShareId})");
+            if (string.IsNullOrWhiteSpace(selectedContact.PublicKeyBase64))
+            {
+                ImGui.TextWrapped("This contact is missing a public key. Paste their combined identity in Contacts before creating a send request.");
+            }
         }
 
         if (DrawActionButton("Upload / Share Code", CanStartOperation()) && ValidateUploadInputs())
@@ -256,19 +261,29 @@ public sealed class MainWindow : Window, IDisposable
     private void DrawContactsTab()
     {
         ImGui.InputText("Display name", ref contactName, 128);
-        ImGui.InputText("PmpShare ID", ref contactId, 128);
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputText("PmpShare identity", ref contactIdentity, 256);
         if (ImGui.Button("Add contact"))
         {
-            if (string.IsNullOrWhiteSpace(contactName) || string.IsNullOrWhiteSpace(contactId))
+            if (string.IsNullOrWhiteSpace(contactName) || string.IsNullOrWhiteSpace(contactIdentity))
             {
-                contactResult = "Display name and PmpShare ID are required.";
+                contactResult = "Display name and PmpShare identity are required.";
+            }
+            else if (!IdentityService.TryParseCombinedIdentity(contactIdentity, out var pmpShareId, out var publicKeyBase64))
+            {
+                contactResult = "Paste an identity in the format ps_xxx.publicKeyBase64.";
             }
             else
             {
-                configuration.Contacts.Add(new Contact { DisplayName = contactName.Trim(), PmpShareId = contactId.Trim() });
+                configuration.Contacts.Add(new Contact
+                {
+                    DisplayName = contactName.Trim(),
+                    PmpShareId = pmpShareId,
+                    PublicKeyBase64 = publicKeyBase64,
+                });
                 configuration.Save();
                 contactName = string.Empty;
-                contactId = string.Empty;
+                contactIdentity = string.Empty;
                 contactResult = "Contact added.";
             }
         }
@@ -279,6 +294,14 @@ public sealed class MainWindow : Window, IDisposable
         {
             var contact = configuration.Contacts[i];
             ImGui.TextUnformatted($"{contact.DisplayName} - {contact.PmpShareId}");
+            if (!string.IsNullOrWhiteSpace(contact.PublicKeyBase64))
+            {
+                ImGui.TextWrapped($"Public key: {contact.PublicKeyBase64}");
+            }
+            else
+            {
+                ImGui.TextWrapped("Missing public key. Remove and re-add this contact with their combined identity.");
+            }
             ImGui.SameLine();
             if (ImGui.Button($"Remove##contact{i}"))
             {
@@ -485,13 +508,38 @@ public sealed class MainWindow : Window, IDisposable
 
         selectedContactIndex = Math.Clamp(selectedContactIndex, 0, configuration.Contacts.Count - 1);
         var contact = configuration.Contacts[selectedContactIndex];
+        if (string.IsNullOrWhiteSpace(contact.PublicKeyBase64))
+        {
+            uploadResult = "Selected contact is missing a public key. Re-add them using their combined identity.";
+            return;
+        }
+        await EncryptAndUploadAsync(cancellationToken).ConfigureAwait(false);
+        if (!IsTransferId(lastTransferId))
+        {
+            uploadResult = "Upload failed before a send request could be created.";
+            return;
+        }
+
+        var wrappedPassphrase = IdentityService.WrapPassphrase(
+            configuration.X25519PrivateKeyBase64,
+            contact.PublicKeyBase64,
+            uploadPassphrase);
 
         var request = await apiClient.CreateSendRequestAsync(
             apiBaseUrl,
             testerKey,
-            new CreateSendRequestRequest(configuration.PmpShareId, contact.PmpShareId, "PmpShare tester", lastTransferId, "Receiver accepted means copy/share the transfer ID and passphrase manually.", 10_800),
+            new CreateSendRequestRequest(
+                configuration.PmpShareId,
+                contact.PmpShareId,
+                "PmpShare tester",
+                lastTransferId,
+                configuration.X25519PublicKeyBase64,
+                wrappedPassphrase.CiphertextBase64,
+                wrappedPassphrase.NonceBase64,
+                "Encrypted PmpShare transfer",
+                10_800),
             cancellationToken).ConfigureAwait(false);
-        uploadResult = $"Send request created: {request.RequestId}. Receiver must accept; share code/passphrase still stays manual for this MVP.";
+        uploadResult = $"Send request created: {request.RequestId}. Receiver can accept and decrypt automatically.";
     }
 
     private async Task RefreshInboxAsync(CancellationToken cancellationToken)
@@ -502,8 +550,25 @@ public sealed class MainWindow : Window, IDisposable
 
     private async Task AcceptRequestAsync(SendRequest request, CancellationToken cancellationToken)
     {
-        await apiClient.AcceptSendRequestAsync(apiBaseUrl, testerKey, request.RequestId, cancellationToken).ConfigureAwait(false);
-        receiveResult = "Request accepted. Sender should now share/copy the transfer ID and passphrase manually.";
+        var accepted = await apiClient.AcceptSendRequestAsync(apiBaseUrl, testerKey, request.RequestId, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(accepted.TransferId) ||
+            string.IsNullOrWhiteSpace(accepted.SenderPublicKey) ||
+            string.IsNullOrWhiteSpace(accepted.EncryptedPassphrase) ||
+            string.IsNullOrWhiteSpace(accepted.EncryptedPassphraseNonce))
+        {
+            receiveResult = "Request accepted, but it did not include an encrypted passphrase envelope.";
+            await RefreshInboxAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        downloadTransferId = accepted.TransferId;
+        downloadPassphrase = IdentityService.UnwrapPassphrase(
+            configuration.X25519PrivateKeyBase64,
+            accepted.SenderPublicKey,
+            accepted.EncryptedPassphrase,
+            accepted.EncryptedPassphraseNonce);
+        receiveResult = "Request accepted. Passphrase unwrapped locally; downloading transfer...";
+        await DownloadDecryptAndVerifyAsync(cancellationToken).ConfigureAwait(false);
         await RefreshInboxAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -569,6 +634,16 @@ public sealed class MainWindow : Window, IDisposable
         if (configuration.Contacts.Count == 0)
         {
             uploadResult = "Add a contact first.";
+            return false;
+        }
+        var contact = configuration.Contacts[Math.Clamp(selectedContactIndex, 0, configuration.Contacts.Count - 1)];
+        if (string.IsNullOrWhiteSpace(contact.PublicKeyBase64))
+        {
+            uploadResult = "Selected contact is missing a public key.";
+            return false;
+        }
+        if (!ValidateUploadInputs())
+        {
             return false;
         }
         return true;

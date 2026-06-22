@@ -39,6 +39,9 @@ public sealed record CreateSendRequestRequest(
     [property: JsonPropertyName("recipientId")] string RecipientId,
     [property: JsonPropertyName("senderDisplayName")] string? SenderDisplayName,
     [property: JsonPropertyName("transferId")] string? TransferId,
+    [property: JsonPropertyName("senderPublicKey")] string? SenderPublicKey,
+    [property: JsonPropertyName("encryptedPassphrase")] string? EncryptedPassphrase,
+    [property: JsonPropertyName("encryptedPassphraseNonce")] string? EncryptedPassphraseNonce,
     [property: JsonPropertyName("message")] string? Message,
     [property: JsonPropertyName("expiresInSeconds")] int ExpiresInSeconds);
 
@@ -48,6 +51,9 @@ public sealed record SendRequest(
     [property: JsonPropertyName("recipientId")] string RecipientId,
     [property: JsonPropertyName("senderDisplayName")] string? SenderDisplayName,
     [property: JsonPropertyName("transferId")] string? TransferId,
+    [property: JsonPropertyName("senderPublicKey")] string? SenderPublicKey,
+    [property: JsonPropertyName("encryptedPassphrase")] string? EncryptedPassphrase,
+    [property: JsonPropertyName("encryptedPassphraseNonce")] string? EncryptedPassphraseNonce,
     [property: JsonPropertyName("message")] string? Message,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("expiresAt")] DateTimeOffset ExpiresAt,
