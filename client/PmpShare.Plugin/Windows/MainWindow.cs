@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using PmpShare.Plugin.Models;
@@ -18,6 +19,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly PmpShareApiClient apiClient;
     private readonly TransferCrypto transferCrypto;
     private readonly PenumbraIpcService penumbra;
+    private readonly FileDialogManager fileDialogManager = new();
 
     private string uploadPlaintextPath;
     private string uploadPassphrase = string.Empty;
@@ -78,6 +80,7 @@ public sealed class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        fileDialogManager.Draw();
         if (ImGui.BeginTabBar("PmpShareTabs"))
         {
             DrawTab("Status", DrawStatusTab);
@@ -139,7 +142,15 @@ public sealed class MainWindow : Window, IDisposable
         {
             DrawPenumbraModSelector();
             ImGui.TextWrapped("PmpShare stages temporary encrypted upload files automatically. Penumbra can export mods in its UI, but the installed public Penumbra API does not expose an export IPC, so installed-mod sends need the folder where Penumbra writes exported .pmp files.");
-            if (DrawTextInput("Penumbra export folder", "Folder where Penumbra writes exported .pmp files", ref penumbraExportFolder, 1024))
+            if (DrawPathInput("Penumbra export folder", "Folder where Penumbra writes exported .pmp files", ref penumbraExportFolder, 1024, "Browse##PenumbraExportFolder", () =>
+                {
+                    OpenFolderPicker("Select Penumbra export folder", penumbraExportFolder, selected =>
+                    {
+                        penumbraExportFolder = selected;
+                        configuration.PenumbraExportFolder = selected;
+                        configuration.Save();
+                    });
+                }))
             {
                 configuration.PenumbraExportFolder = penumbraExportFolder;
                 configuration.Save();
@@ -172,7 +183,15 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextWrapped($"Found exported PMP: {foundExportedPmp}");
         }
 
-        if (DrawTextInput("PMP file to send", @"C:\path\to\mod.pmp", ref uploadPlaintextPath, 1024))
+        if (DrawPathInput("PMP file to send", @"C:\path\to\mod.pmp", ref uploadPlaintextPath, 1024, "Browse##UploadPmp", () =>
+            {
+                OpenFilePicker("Select PMP file to send", ".pmp{.pmp}", uploadPlaintextPath, selected =>
+                {
+                    uploadPlaintextPath = selected;
+                    configuration.LastUploadPath = selected;
+                    configuration.Save();
+                });
+            }))
         {
             configuration.LastUploadPath = uploadPlaintextPath;
             configuration.Save();
@@ -231,7 +250,15 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawReceiveTab()
     {
-        if (DrawTextInput("Save decrypted PMP to", @"C:\Users\you\Desktop\PmpShare", ref downloadDirectory, 1024))
+        if (DrawPathInput("Save decrypted PMP to", @"C:\Users\you\Desktop\PmpShare", ref downloadDirectory, 1024, "Browse##DownloadDirectory", () =>
+            {
+                OpenFolderPicker("Select receive folder", downloadDirectory, selected =>
+                {
+                    downloadDirectory = selected;
+                    configuration.LastDownloadDirectory = selected;
+                    configuration.Save();
+                });
+            }))
         {
             configuration.LastDownloadDirectory = downloadDirectory;
             configuration.Save();
@@ -750,6 +777,54 @@ public sealed class MainWindow : Window, IDisposable
         statusText = stage;
     }
 
+    private void OpenFolderPicker(string title, string currentPath, Action<string> onSelected)
+    {
+        fileDialogManager.OpenFolderDialog(
+            title,
+            (success, selected) =>
+            {
+                if (success && !string.IsNullOrWhiteSpace(selected))
+                {
+                    onSelected(selected);
+                }
+            },
+            StartDirectoryFor(currentPath),
+            true);
+    }
+
+    private void OpenFilePicker(string title, string filters, string currentPath, Action<string> onSelected)
+    {
+        fileDialogManager.OpenFileDialog(
+            title,
+            filters,
+            (success, selected) =>
+            {
+                if (success && selected.Count > 0 && !string.IsNullOrWhiteSpace(selected[0]))
+                {
+                    onSelected(selected[0]);
+                }
+            },
+            1,
+            StartDirectoryFor(currentPath),
+            true);
+    }
+
+    private static string StartDirectoryFor(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            return path;
+        }
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+        {
+            return directory;
+        }
+
+        return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+    }
+
     private static bool DrawTextInput(
         string label,
         string hint,
@@ -763,6 +838,28 @@ public sealed class MainWindow : Window, IDisposable
         var changed = flags == ImGuiInputTextFlags.None
             ? ImGui.InputText($"##{label}", ref value, maxLength)
             : ImGui.InputText($"##{label}", ref value, maxLength, flags);
+        return changed;
+    }
+
+    private static bool DrawPathInput(
+        string label,
+        string hint,
+        ref string value,
+        int maxLength,
+        string buttonLabel,
+        Action onBrowse)
+    {
+        ImGui.TextUnformatted(label);
+        ImGui.TextDisabled(hint);
+        var buttonWidth = ImGui.CalcTextSize("Browse").X + ImGui.GetStyle().FramePadding.X * 2f;
+        ImGui.SetNextItemWidth(-(buttonWidth + ImGui.GetStyle().ItemSpacing.X));
+        var changed = ImGui.InputText($"##{label}", ref value, maxLength);
+        ImGui.SameLine();
+        if (ImGui.Button(buttonLabel))
+        {
+            onBrowse();
+        }
+
         return changed;
     }
 
