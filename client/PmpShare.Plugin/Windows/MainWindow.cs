@@ -375,7 +375,7 @@ public sealed class MainWindow : Window, IDisposable
 
         foreach (var (directory, name) in penumbra.CurrentStatus.InstalledMods.OrderBy(kvp => kvp.Value))
         {
-            if (ImGui.Selectable($"{name} ({directory})", selectedModDirectory == directory))
+            if (ImGui.Selectable(FormatModDisplayName(directory, name), selectedModDirectory == directory))
             {
                 selectedModDirectory = directory;
                 selectedModName = name;
@@ -754,6 +754,36 @@ public sealed class MainWindow : Window, IDisposable
 
     private static string NormalizeName(string value) =>
         new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+    private static string FormatModDisplayName(string directory, string name)
+    {
+        var cleanedDirectory = StripKnownModSuffix(directory);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return cleanedDirectory;
+        }
+
+        if (NormalizeName(cleanedDirectory) == NormalizeName(name))
+        {
+            return name;
+        }
+
+        return $"{name} ({cleanedDirectory})";
+    }
+
+    private static string StripKnownModSuffix(string value)
+    {
+        var trimmed = value.Trim();
+        foreach (var suffix in new[] { ".pmp", ".ttmp2", ".ttmp" })
+        {
+            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed[..^suffix.Length];
+            }
+        }
+
+        return trimmed;
+    }
 
     private static void OpenFolder(string path)
     {
