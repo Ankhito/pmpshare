@@ -11,14 +11,14 @@ public sealed class MainWindow : Window, IDisposable
 {
     private const long MaxEncryptedSizeBytes = 500L * 1024L * 1024L;
     private const int TransferIdLength = 32;
+    private const string ApiBaseUrl = "https://pmpshare-api.contact-theankh.workers.dev";
+    private const string TesterKey = "clubnoiristhebest";
 
     private readonly Configuration configuration;
     private readonly PmpShareApiClient apiClient;
     private readonly TransferCrypto transferCrypto;
     private readonly PenumbraIpcService penumbra;
 
-    private string apiBaseUrl;
-    private string testerKey = string.Empty;
     private string uploadPlaintextPath;
     private string uploadPassphrase = string.Empty;
     private string downloadTransferId = string.Empty;
@@ -61,7 +61,6 @@ public sealed class MainWindow : Window, IDisposable
         this.apiClient = apiClient;
         this.transferCrypto = transferCrypto;
         this.penumbra = penumbra;
-        apiBaseUrl = configuration.ApiBaseUrl;
         uploadPlaintextPath = configuration.LastUploadPath;
         downloadDirectory = string.IsNullOrWhiteSpace(configuration.LastDownloadDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "PmpShare")
@@ -112,7 +111,7 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted($"Worker URL: {apiBaseUrl}");
+        ImGui.TextUnformatted("Worker: PmpShare testing API");
         ImGui.TextUnformatted($"Penumbra available: {penumbraStatus.IsAvailable}");
         ImGui.TextUnformatted($"Penumbra API version: {penumbraStatus.ApiVersion}");
         ImGui.TextUnformatted($"Penumbra enabled: {penumbraStatus.IsEnabled}");
@@ -225,7 +224,7 @@ public sealed class MainWindow : Window, IDisposable
             configuration.Save();
         }
 
-        if (DrawActionButton("Refresh Inbox", CanStartOperation()) && HasApiAuth())
+        if (DrawActionButton("Refresh Inbox", CanStartOperation()))
         {
             StartOperation(async token => await RefreshInboxAsync(token).ConfigureAwait(false));
         }
@@ -359,14 +358,6 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawSettingsTab()
     {
-        if (DrawTextInput("API base URL", "https://pmpshare-api.contact-theankh.workers.dev", ref apiBaseUrl, 512))
-        {
-            configuration.ApiBaseUrl = apiBaseUrl.Trim();
-            configuration.Save();
-        }
-
-        DrawTextInput("Tester key", "Private Worker tester key; kept in memory only", ref testerKey, 512, ImGuiInputTextFlags.Password);
-
         var autoImport = configuration.AutoImportToPenumbraAfterReceive;
         if (ImGui.Checkbox("Auto import to Penumbra after receive", ref autoImport))
         {
@@ -458,12 +449,12 @@ public sealed class MainWindow : Window, IDisposable
             uploadResult = "Encrypting locally...";
             var encryption = await transferCrypto.EncryptFileAsync(sourcePath, encryptedPath, uploadPassphrase, cancellationToken).ConfigureAwait(false);
             SetOperationProgress("Creating transfer metadata", 0.4f);
-            var transfer = await apiClient.CreateTransferAsync(apiBaseUrl, testerKey, new CreateTransferRequest(Path.GetFileName(sourcePath), encryption.PlaintextSha256, encryption.EncryptedSize, 10_800), cancellationToken).ConfigureAwait(false);
+            var transfer = await apiClient.CreateTransferAsync(ApiBaseUrl, TesterKey, new CreateTransferRequest(Path.GetFileName(sourcePath), encryption.PlaintextSha256, encryption.EncryptedSize, 10_800), cancellationToken).ConfigureAwait(false);
             SetOperationProgress("Uploading encrypted blob", 0.65f);
             uploadResult = "Uploading encrypted blob...";
-            await apiClient.UploadBlobAsync(apiBaseUrl, testerKey, transfer.UploadUrl, encryptedPath, cancellationToken).ConfigureAwait(false);
+            await apiClient.UploadBlobAsync(ApiBaseUrl, TesterKey, transfer.UploadUrl, encryptedPath, cancellationToken).ConfigureAwait(false);
             lastTransferId = transfer.TransferId;
-            lastMetadataUrl = new Uri(new Uri(apiBaseUrl), transfer.MetadataUrl).ToString();
+            lastMetadataUrl = new Uri(new Uri(ApiBaseUrl), transfer.MetadataUrl).ToString();
             SetOperationProgress("Upload complete", 1f);
             uploadResult = "Upload complete.";
         }
@@ -479,7 +470,7 @@ public sealed class MainWindow : Window, IDisposable
         Directory.CreateDirectory(downloadDirectory);
         SetOperationProgress("Fetching transfer metadata", 0.15f);
         receiveResult = "Fetching metadata...";
-        var metadata = await apiClient.GetMetadataAsync(apiBaseUrl, transferId, cancellationToken).ConfigureAwait(false);
+        var metadata = await apiClient.GetMetadataAsync(ApiBaseUrl, transferId, cancellationToken).ConfigureAwait(false);
         ValidateMetadata(metadata);
 
         var encryptedPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pmpshare.bin");
@@ -489,7 +480,7 @@ public sealed class MainWindow : Window, IDisposable
         {
             SetOperationProgress("Downloading encrypted blob", 0.35f);
             receiveResult = "Downloading encrypted blob...";
-            await apiClient.DownloadBlobAsync(apiBaseUrl, transferId, encryptedPath, cancellationToken).ConfigureAwait(false);
+            await apiClient.DownloadBlobAsync(ApiBaseUrl, transferId, encryptedPath, cancellationToken).ConfigureAwait(false);
             SetOperationProgress("Decrypting and verifying", 0.65f);
             receiveResult = "Decrypting locally to staging...";
             var actualSha256 = await transferCrypto.DecryptFileAsync(encryptedPath, partPath, downloadPassphrase, cancellationToken).ConfigureAwait(false);
@@ -505,7 +496,7 @@ public sealed class MainWindow : Window, IDisposable
             }
             File.Move(partPath, finalPath);
             SetOperationProgress("Completing transfer", 0.85f);
-            await apiClient.CompleteTransferAsync(apiBaseUrl, testerKey, transferId, cancellationToken).ConfigureAwait(false);
+            await apiClient.CompleteTransferAsync(ApiBaseUrl, TesterKey, transferId, cancellationToken).ConfigureAwait(false);
             lastReceivedPmp = finalPath;
             verifiedReceiveReady = true;
             SetOperationProgress("Receive complete", 1f);
@@ -554,8 +545,8 @@ public sealed class MainWindow : Window, IDisposable
 
         SetOperationProgress("Creating contact send request", 0.95f);
         var request = await apiClient.CreateSendRequestAsync(
-            apiBaseUrl,
-            testerKey,
+            ApiBaseUrl,
+            TesterKey,
             new CreateSendRequestRequest(
                 configuration.PmpShareId,
                 contact.PmpShareId,
@@ -574,7 +565,7 @@ public sealed class MainWindow : Window, IDisposable
     private async Task RefreshInboxAsync(CancellationToken cancellationToken)
     {
         SetOperationProgress("Refreshing inbox", 0.4f);
-        inbox = (await apiClient.GetInboxAsync(apiBaseUrl, testerKey, configuration.PmpShareId, cancellationToken).ConfigureAwait(false)).ToList();
+        inbox = (await apiClient.GetInboxAsync(ApiBaseUrl, TesterKey, configuration.PmpShareId, cancellationToken).ConfigureAwait(false)).ToList();
         SetOperationProgress("Inbox refreshed", 1f);
         receiveResult = $"Loaded {inbox.Count} inbox request(s).";
     }
@@ -582,7 +573,7 @@ public sealed class MainWindow : Window, IDisposable
     private async Task AcceptRequestAsync(SendRequest request, CancellationToken cancellationToken)
     {
         SetOperationProgress("Accepting request", 0.15f);
-        var accepted = await apiClient.AcceptSendRequestAsync(apiBaseUrl, testerKey, request.RequestId, cancellationToken).ConfigureAwait(false);
+        var accepted = await apiClient.AcceptSendRequestAsync(ApiBaseUrl, TesterKey, request.RequestId, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(accepted.TransferId) ||
             string.IsNullOrWhiteSpace(accepted.SenderPublicKey) ||
             string.IsNullOrWhiteSpace(accepted.EncryptedPassphrase) ||
@@ -608,7 +599,7 @@ public sealed class MainWindow : Window, IDisposable
     private async Task DeclineRequestAsync(SendRequest request, CancellationToken cancellationToken)
     {
         SetOperationProgress("Declining request", 0.5f);
-        await apiClient.DeclineSendRequestAsync(apiBaseUrl, testerKey, request.RequestId, cancellationToken).ConfigureAwait(false);
+        await apiClient.DeclineSendRequestAsync(ApiBaseUrl, TesterKey, request.RequestId, cancellationToken).ConfigureAwait(false);
         SetOperationProgress("Request declined", 1f);
         await RefreshInboxAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -651,9 +642,9 @@ public sealed class MainWindow : Window, IDisposable
             uploadResult = "Choose an existing .pmp file.";
             return false;
         }
-        if (!HasApiAuth() || string.IsNullOrWhiteSpace(uploadPassphrase))
+        if (string.IsNullOrWhiteSpace(uploadPassphrase))
         {
-            uploadResult = "API base URL, tester key, and passphrase are required.";
+            uploadResult = "Passphrase is required.";
             return false;
         }
         return true;
@@ -661,11 +652,6 @@ public sealed class MainWindow : Window, IDisposable
 
     private bool ValidateSendRequestInputs()
     {
-        if (!HasApiAuth())
-        {
-            uploadResult = "API base URL and tester key are required.";
-            return false;
-        }
         if (configuration.Contacts.Count == 0)
         {
             uploadResult = "Add a contact first.";
@@ -691,18 +677,13 @@ public sealed class MainWindow : Window, IDisposable
             receiveResult = "Transfer ID must be a 32-character lowercase hex value.";
             return false;
         }
-        if (!HasApiAuth() || string.IsNullOrWhiteSpace(downloadDirectory) || string.IsNullOrWhiteSpace(downloadPassphrase))
+        if (string.IsNullOrWhiteSpace(downloadDirectory) || string.IsNullOrWhiteSpace(downloadPassphrase))
         {
-            receiveResult = "API base URL, tester key, output directory, and passphrase are required.";
+            receiveResult = "Output directory and passphrase are required.";
             return false;
         }
         return true;
     }
-
-    private bool HasApiAuth() =>
-        Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var uri) &&
-        (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
-        !string.IsNullOrWhiteSpace(testerKey);
 
     private static void ValidateMetadata(TransferMetadata metadata)
     {
