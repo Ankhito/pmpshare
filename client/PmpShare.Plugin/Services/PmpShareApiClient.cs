@@ -95,6 +95,70 @@ public sealed class PmpShareApiClient
         return await ReadJsonOrThrowAsync<TransferMetadata>(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<SendRequest> CreateSendRequestAsync(
+        string baseUrl,
+        string testerKey,
+        CreateSendRequestRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, BuildUri(baseUrl, "/v1/send-requests"))
+        {
+            Content = JsonContent.Create(request, options: JsonOptions)
+        };
+        AddTesterKey(message, testerKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        return await ReadJsonOrThrowAsync<SendRequest>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<SendRequest>> GetInboxAsync(
+        string baseUrl,
+        string testerKey,
+        string recipientId,
+        CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(
+            HttpMethod.Get,
+            BuildUri(baseUrl, $"/v1/inbox?recipientId={Uri.EscapeDataString(recipientId)}"));
+        AddTesterKey(message, testerKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        var inbox = await ReadJsonOrThrowAsync<InboxResponse>(response, cancellationToken).ConfigureAwait(false);
+        return inbox.Requests;
+    }
+
+    public async Task<SendRequest> AcceptSendRequestAsync(
+        string baseUrl,
+        string testerKey,
+        string requestId,
+        CancellationToken cancellationToken)
+    {
+        return await UpdateSendRequestAsync(baseUrl, testerKey, requestId, "accept", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SendRequest> DeclineSendRequestAsync(
+        string baseUrl,
+        string testerKey,
+        string requestId,
+        CancellationToken cancellationToken)
+    {
+        return await UpdateSendRequestAsync(baseUrl, testerKey, requestId, "decline", cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<SendRequest> UpdateSendRequestAsync(
+        string baseUrl,
+        string testerKey,
+        string requestId,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, BuildUri(baseUrl, $"/v1/send-requests/{requestId}/{action}"));
+        AddTesterKey(message, testerKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        return await ReadJsonOrThrowAsync<SendRequest>(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private static Uri BuildUri(string baseUrl, string pathOrUrl)
     {
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))

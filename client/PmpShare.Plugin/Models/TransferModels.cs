@@ -33,3 +33,24 @@ public sealed record ApiErrorEnvelope([property: JsonPropertyName("error")] ApiE
 public sealed record ApiError(
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("message")] string Message);
+
+public sealed record CreateSendRequestRequest(
+    [property: JsonPropertyName("senderId")] string SenderId,
+    [property: JsonPropertyName("recipientId")] string RecipientId,
+    [property: JsonPropertyName("senderDisplayName")] string? SenderDisplayName,
+    [property: JsonPropertyName("transferId")] string? TransferId,
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("expiresInSeconds")] int ExpiresInSeconds);
+
+public sealed record SendRequest(
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("senderId")] string SenderId,
+    [property: JsonPropertyName("recipientId")] string RecipientId,
+    [property: JsonPropertyName("senderDisplayName")] string? SenderDisplayName,
+    [property: JsonPropertyName("transferId")] string? TransferId,
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("expiresAt")] DateTimeOffset ExpiresAt,
+    [property: JsonPropertyName("status")] string Status);
+
+public sealed record InboxResponse([property: JsonPropertyName("requests")] List<SendRequest> Requests);

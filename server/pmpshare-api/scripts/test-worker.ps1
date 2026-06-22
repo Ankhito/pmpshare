@@ -196,6 +196,56 @@ try {
                 -Body $oversizedBody
         }
 
+    Write-Host "[test] POST /v1/send-requests"
+    $senderId = "ps_sender123456789"
+    $recipientId = "ps_recipient123456789"
+    $sendRequestBody = @{
+        senderId = $senderId
+        recipientId = $recipientId
+        senderDisplayName = "Local Sender"
+        transferId = $transfer.transferId
+        message = "Manual share-code handoff test"
+        expiresInSeconds = 10800
+    } | ConvertTo-Json
+
+    $sendRequest = Invoke-RestMethod `
+        -Method Post `
+        -Uri (Join-Url $BaseUrl "/v1/send-requests") `
+        -Headers $headers `
+        -ContentType "application/json" `
+        -Body $sendRequestBody
+    Assert-Equal $sendRequest.status "pending" "Send request status mismatch."
+    Write-Host "[pass] created send request"
+
+    Write-Host "[test] GET /v1/inbox"
+    $inbox = Invoke-RestMethod `
+        -Method Get `
+        -Uri (Join-Url $BaseUrl "/v1/inbox?recipientId=$recipientId") `
+        -Headers $headers
+    if ($inbox.requests.Count -lt 1) {
+        throw "Inbox did not include created send request."
+    }
+    Write-Host "[pass] inbox listed request"
+
+    Write-Host "[test] POST /v1/send-requests/{id}/accept"
+    $accepted = Invoke-RestMethod `
+        -Method Post `
+        -Uri (Join-Url $BaseUrl "/v1/send-requests/$($sendRequest.requestId)/accept") `
+        -Headers $headers
+    Assert-Equal $accepted.status "accepted" "Accepted send request status mismatch."
+    Write-Host "[pass] accepted send request"
+
+    Invoke-ExpectHttpError `
+        -StatusCode 401 `
+        -Name "send request missing tester key" `
+        -Request {
+            Invoke-RestMethod `
+                -Method Post `
+                -Uri (Join-Url $BaseUrl "/v1/send-requests") `
+                -ContentType "application/json" `
+                -Body $sendRequestBody
+        }
+
     Write-Host "[pass] all Worker API tests passed"
 }
 finally {

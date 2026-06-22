@@ -26,3 +26,19 @@ export interface TransferMetadata {
   deletedAt?: string;
   expiredAt?: string;
 }
+
+export type SendRequestStatus = "pending" | "accepted" | "declined" | "expired";
+
+export interface SendRequestMetadata {
+  requestId: string;
+  senderId: string;
+  recipientId: string;
+  senderDisplayName?: string;
+  transferId?: string;
+  message?: string;
+  createdAt: string;
+  expiresAt: string;
+  status: SendRequestStatus;
+  acceptedAt?: string;
+  declinedAt?: string;
+}

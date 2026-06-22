@@ -27,6 +27,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly HttpClient httpClient = new();
     private readonly PmpShareApiClient apiClient;
     private readonly TransferCrypto transferCrypto = new();
+    private readonly PenumbraIpcService penumbraIpcService;
     private readonly MainWindow mainWindow;
 
     public Plugin()
@@ -35,7 +36,8 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.Initialize(PluginInterface);
 
         apiClient = new PmpShareApiClient(httpClient);
-        mainWindow = new MainWindow(Configuration, apiClient, transferCrypto);
+        penumbraIpcService = new PenumbraIpcService(PluginInterface);
+        mainWindow = new MainWindow(Configuration, apiClient, transferCrypto, penumbraIpcService);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -56,6 +58,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();
+        penumbraIpcService.Dispose();
         httpClient.Dispose();
     }
 

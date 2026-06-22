@@ -190,6 +190,58 @@ Effects:
 
 Response: public-safe metadata with `status: "deleted"`.
 
+## POST /v1/send-requests
+
+Auth: tester key required.
+
+Creates a minimal contact/inbox request. This does not contain plaintext file keys. In the current MVP, accepted requests tell the sender to share the transfer ID and passphrase manually through a private channel.
+
+Request:
+
+```json
+{
+  "senderId": "ps_sender123456789",
+  "recipientId": "ps_recipient123456789",
+  "senderDisplayName": "Sender",
+  "transferId": "0123456789abcdef0123456789abcdef",
+  "message": "Ready to send",
+  "expiresInSeconds": 10800
+}
+```
+
+Response `201`: send request metadata with `status: "pending"`.
+
+## GET /v1/inbox?recipientId=...
+
+Auth: tester key required.
+
+Returns send requests addressed to a local PmpShare ID.
+
+```json
+{
+  "requests": [
+    {
+      "requestId": "0123456789abcdef0123456789abcdef",
+      "senderId": "ps_sender123456789",
+      "recipientId": "ps_recipient123456789",
+      "status": "pending"
+    }
+  ]
+}
+```
+
+## POST /v1/send-requests/{id}/accept
+
+Auth: tester key required.
+
+Marks a pending send request accepted.
+
+## POST /v1/send-requests/{id}/decline
+
+Auth: tester key required.
+
+Marks a pending send request declined.
+
 ## Scheduled Cleanup
 
 Cloudflare calls the Worker scheduled handler every 15 minutes according to `wrangler.jsonc`.

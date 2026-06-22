@@ -16,16 +16,42 @@ Current command:
 - Downloads encrypted blobs.
 - Decrypts locally with the passphrase.
 - Calls `/complete` only after decrypt succeeds and SHA-256 matches, which deletes the server blob.
+- Can import a verified received `.pmp` through Penumbra IPC.
+- Can list installed Penumbra mods and find matching exported `.pmp` files for sending.
+- Can create and view simple Worker-backed send requests for manually added contacts.
 
 ## What It Does Not Do Yet
 
-- No Penumbra import.
 - No auto-enable.
 - No Mare-style sync.
 - No XIVAuth.
 - No public browsing or search.
 - No permanent hosting.
 - No game packet logic.
+- No automatic contact key exchange yet.
+- No raw AES/decryption keys are stored on the Worker.
+
+## Penumbra IPC Limits
+
+PmpShare uses Penumbra IPC for status, mod listing, mod paths, and `Penumbra.InstallMod.V5`. A successful install result means Penumbra queued the package for install; it does not guarantee the mod is fully installed yet.
+
+PmpShare never auto-enables a Penumbra mod.
+
+There is no verified public Penumbra export IPC in the installed API docs, so sending an installed Penumbra mod uses export-folder fallback:
+
+1. Export the mod to `.pmp` through Penumbra.
+2. Set the export folder in PmpShare settings.
+3. Select the installed mod.
+4. Click `Find Exported PMP`.
+5. Send the detected `.pmp`.
+
+PmpShare does not modify or package the original Penumbra mod folder.
+
+## Install Cleanup
+
+Receive writes decrypted files to staging as `.part`, verifies SHA-256, then renames to the final `.pmp`. The Worker `/complete` call happens only after decrypt and hash verification succeed.
+
+If Penumbra import succeeds and `DeleteAfterSuccessfulPenumbraImport` is enabled, PmpShare deletes the local decrypted `.pmp`. If Penumbra is unavailable or import fails, the `.pmp` is kept.
 
 ## Build
 

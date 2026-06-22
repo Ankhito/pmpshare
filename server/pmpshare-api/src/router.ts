@@ -9,6 +9,12 @@ import {
   uploadBlob,
 } from "./handlers";
 import { errorResponse } from "./responses";
+import {
+  acceptSendRequest,
+  createSendRequest,
+  declineSendRequest,
+  getInbox,
+} from "./sendRequests";
 import type { Env } from "./types";
 
 export async function route(request: Request, env: Env): Promise<Response> {
@@ -23,6 +29,29 @@ export async function route(request: Request, env: Env): Promise<Response> {
     const authError = requireTesterKey(request, env);
     if (authError) return authError;
     return createTransfer(request, env);
+  }
+
+  if (request.method === "POST" && path === "/v1/send-requests") {
+    const authError = requireTesterKey(request, env);
+    if (authError) return authError;
+    return createSendRequest(request, env);
+  }
+
+  if (request.method === "GET" && path === "/v1/inbox") {
+    const authError = requireTesterKey(request, env);
+    if (authError) return authError;
+    return getInbox(request, env);
+  }
+
+  const sendRequestMatch = path.match(
+    /^\/v1\/send-requests\/([^/]+)\/(accept|decline)$/,
+  );
+  if (sendRequestMatch && request.method === "POST") {
+    const authError = requireTesterKey(request, env);
+    if (authError) return authError;
+    return sendRequestMatch[2] === "accept"
+      ? acceptSendRequest(env, sendRequestMatch[1])
+      : declineSendRequest(env, sendRequestMatch[1]);
   }
 
   const match = path.match(
