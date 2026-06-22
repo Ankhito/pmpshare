@@ -138,7 +138,7 @@ public sealed class MainWindow : Window, IDisposable
         if (sendFromPenumbraMod)
         {
             DrawPenumbraModSelector();
-            ImGui.TextWrapped("PmpShare stages temporary encrypted upload files automatically. Until Penumbra export IPC is available, installed-mod sends still need a folder where Penumbra already exported .pmp files.");
+            ImGui.TextWrapped("PmpShare stages temporary encrypted upload files automatically. Penumbra can export mods in its UI, but the installed public Penumbra API does not expose an export IPC, so installed-mod sends need the folder where Penumbra writes exported .pmp files.");
             if (DrawTextInput("Penumbra export folder", "Folder where Penumbra writes exported .pmp files", ref penumbraExportFolder, 1024))
             {
                 configuration.PenumbraExportFolder = penumbraExportFolder;
