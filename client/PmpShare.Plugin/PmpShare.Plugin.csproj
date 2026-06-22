@@ -1,0 +1,19 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <Authors>PmpShare contributors</Authors>
+    <Company>PmpShare</Company>
+    <Description>Temporary encrypted .pmp transfer client for PmpShare.</Description>
+    <PackageProjectUrl>https://github.com/papou/pmpshare</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/papou/pmpshare</RepositoryUrl>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Use_Dalamud_FFXIVClientStructs>false</Use_Dalamud_FFXIVClientStructs>
+    <Use_Dalamud_Lumina>false</Use_Dalamud_Lumina>
+    <Use_Dalamud_Lumina_Excel>false</Use_Dalamud_Lumina_Excel>
+    <Use_Dalamud_MSObjectPool>false</Use_Dalamud_MSObjectPool>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PmpShare.Plugin.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

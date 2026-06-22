@@ -1,0 +1,9 @@
+{
+  "Author": "PmpShare contributors",
+  "Name": "PmpShare",
+  "Punchline": "Temporary encrypted .pmp transfer client.",
+  "Description": "Uploads and downloads encrypted .pmp transfers through a private PmpShare Cloudflare Worker API. No plaintext files or decryption keys are sent to the server.",
+  "InternalName": "PmpShare.Plugin",
+  "ApplicableVersion": "any",
+  "Tags": ["pmp", "transfer"]
+}
