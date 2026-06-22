@@ -144,6 +144,12 @@ public sealed class MainWindow : Window, IDisposable
                 configuration.PenumbraExportFolder = penumbraExportFolder;
                 configuration.Save();
             }
+            var deleteExportAfterUpload = configuration.DeletePenumbraExportAfterUpload;
+            if (ImGui.Checkbox("Delete selected export after successful upload", ref deleteExportAfterUpload))
+            {
+                configuration.DeletePenumbraExportAfterUpload = deleteExportAfterUpload;
+                configuration.Save();
+            }
             if (ImGui.Button("Find Exported PMP"))
             {
                 foundExportedPmp = FindExportedPmp(selectedModName, penumbraExportFolder) ?? string.Empty;
@@ -464,6 +470,7 @@ public sealed class MainWindow : Window, IDisposable
             lastMetadataUrl = new Uri(new Uri(ApiBaseUrl), transfer.MetadataUrl).ToString();
             SetOperationProgress("Upload complete", 1f);
             uploadResult = "Upload complete.";
+            TryDeleteUsedPenumbraExport(sourcePath);
         }
         finally
         {
@@ -804,6 +811,21 @@ public sealed class MainWindow : Window, IDisposable
             .OrderByDescending(file => file.LastWriteTimeUtc)
             .FirstOrDefault()
             ?.FullName;
+    }
+
+    private void TryDeleteUsedPenumbraExport(string sourcePath)
+    {
+        if (!configuration.DeletePenumbraExportAfterUpload ||
+            string.IsNullOrWhiteSpace(foundExportedPmp) ||
+            !Path.GetFullPath(sourcePath).Equals(Path.GetFullPath(foundExportedPmp), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        TryDelete(foundExportedPmp);
+        foundExportedPmp = string.Empty;
+        uploadPlaintextPath = string.Empty;
+        uploadResult += "\nDeleted selected Penumbra export after successful upload.";
     }
 
     private static string NormalizeName(string value) =>

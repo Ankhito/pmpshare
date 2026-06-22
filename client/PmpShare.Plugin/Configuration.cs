@@ -34,6 +34,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool KeepDownloadedPmpIfImportFails { get; set; } = true;
 
+    public bool DeletePenumbraExportAfterUpload { get; set; } = true;
+
     public List<Contact> Contacts { get; set; } = [];
 
     public void Initialize(IDalamudPluginInterface dalamudPluginInterface)
