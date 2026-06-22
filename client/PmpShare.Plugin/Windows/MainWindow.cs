@@ -103,11 +103,18 @@ public sealed class MainWindow : Window, IDisposable
     private void DrawStatusTab()
     {
         var penumbraStatus = penumbra.CurrentStatus;
-        ImGui.TextUnformatted($"My PmpShare ID: {configuration.PmpShareId}");
-        ImGui.TextWrapped($"My public key: {configuration.X25519PublicKeyBase64}");
+        var combinedIdentity = IdentityService.CombinedIdentity(configuration);
+        ImGui.TextUnformatted("My PmpShare Identity");
+        ImGui.TextWrapped(combinedIdentity);
         if (ImGui.Button("Copy My PmpShare Identity"))
         {
-            ImGui.SetClipboardText(IdentityService.CombinedIdentity(configuration));
+            ImGui.SetClipboardText(combinedIdentity);
+        }
+
+        if (ImGui.CollapsingHeader("Technical identity details"))
+        {
+            ImGui.TextUnformatted($"PmpShare ID: {configuration.PmpShareId}");
+            ImGui.TextWrapped($"Public key: {configuration.X25519PublicKeyBase64}");
         }
 
         ImGui.Separator();
