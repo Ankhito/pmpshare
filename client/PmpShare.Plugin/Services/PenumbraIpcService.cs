@@ -6,7 +6,7 @@ namespace PmpShare.Plugin.Services;
 
 public sealed class PenumbraIpcService : IDisposable
 {
-    private readonly ICallGateSubscriber<int> apiVersion;
+    private readonly ICallGateSubscriber<(int Breaking, int Feature)> apiVersion;
     private readonly ICallGateSubscriber<bool> getEnabledState;
     private readonly ICallGateSubscriber<string> getModDirectory;
     private readonly ICallGateSubscriber<Dictionary<string, string>> getModList;
@@ -20,7 +20,7 @@ public sealed class PenumbraIpcService : IDisposable
 
     public PenumbraIpcService(IDalamudPluginInterface pluginInterface)
     {
-        apiVersion = pluginInterface.GetIpcSubscriber<int>("Penumbra.ApiVersion.V5");
+        apiVersion = pluginInterface.GetIpcSubscriber<(int Breaking, int Feature)>("Penumbra.ApiVersion.V5");
         getEnabledState = pluginInterface.GetIpcSubscriber<bool>("Penumbra.GetEnabledState");
         getModDirectory = pluginInterface.GetIpcSubscriber<string>("Penumbra.GetModDirectory");
         getModList = pluginInterface.GetIpcSubscriber<Dictionary<string, string>>("Penumbra.GetModList");
@@ -42,7 +42,8 @@ public sealed class PenumbraIpcService : IDisposable
         var next = new PenumbraStatus();
         try
         {
-            next.ApiVersion = apiVersion.InvokeFunc();
+            var version = apiVersion.InvokeFunc();
+            next.ApiVersion = $"{version.Breaking}.{version.Feature}";
             next.IsEnabled = getEnabledState.InvokeFunc();
             next.ModRoot = getModDirectory.InvokeFunc() ?? string.Empty;
             next.InstalledMods = getModList.InvokeFunc() ?? [];

@@ -4,7 +4,7 @@ public sealed class PenumbraStatus
 {
     public bool IsAvailable { get; set; }
 
-    public int ApiVersion { get; set; }
+    public string ApiVersion { get; set; } = string.Empty;
 
     public bool IsEnabled { get; set; }
 
