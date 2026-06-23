@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Security.Cryptography;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
@@ -197,7 +198,6 @@ public sealed class MainWindow : Window, IDisposable
             configuration.Save();
         }
 
-        DrawTextInput("Transfer passphrase", "Local password used to encrypt this upload", ref uploadPassphrase, 512, ImGuiInputTextFlags.Password);
         var selectedContact = DrawContactSelector();
         if (selectedContact is not null)
         {
@@ -227,9 +227,10 @@ public sealed class MainWindow : Window, IDisposable
             if (showManualSend)
             {
                 ImGui.TextWrapped("Use this only for testing or fallback. The normal flow sends the encrypted passphrase to a contact request automatically.");
+                DrawTextInput("Manual transfer passphrase", "Only used for manual share-code uploads", ref uploadPassphrase, 512, ImGuiInputTextFlags.Password);
                 if (DrawActionButton("Upload / Share Code", CanStartOperation()) && ValidateUploadInputs())
                 {
-                    StartOperation(async token => await EncryptAndUploadAsync(token).ConfigureAwait(false));
+                    StartOperation(async token => await EncryptAndUploadAsync(uploadPassphrase, token).ConfigureAwait(false));
                 }
 
                 if (!string.IsNullOrWhiteSpace(lastTransferId))
@@ -410,12 +411,6 @@ public sealed class MainWindow : Window, IDisposable
             configuration.PenumbraImportRequiresConfirmation = requiresConfirmation;
             configuration.Save();
         }
-        var deleteAfterImport = configuration.DeleteAfterSuccessfulPenumbraImport;
-        if (ImGui.Checkbox("Delete after successful Penumbra import", ref deleteAfterImport))
-        {
-            configuration.DeleteAfterSuccessfulPenumbraImport = deleteAfterImport;
-            configuration.Save();
-        }
         var keepIfImportFails = configuration.KeepDownloadedPmpIfImportFails;
         if (ImGui.Checkbox("Keep downloaded PMP if import fails", ref keepIfImportFails))
         {
@@ -479,7 +474,7 @@ public sealed class MainWindow : Window, IDisposable
         return configuration.Contacts[selectedContactIndex];
     }
 
-    private async Task EncryptAndUploadAsync(CancellationToken cancellationToken)
+    private async Task EncryptAndUploadAsync(string passphrase, CancellationToken cancellationToken)
     {
         var sourcePath = uploadPlaintextPath.Trim('"', ' ');
         var encryptedPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pmpshare.bin");
@@ -487,7 +482,7 @@ public sealed class MainWindow : Window, IDisposable
         {
             SetOperationProgress("Encrypting file locally", 0.15f);
             uploadResult = "Encrypting locally...";
-            var encryption = await transferCrypto.EncryptFileAsync(sourcePath, encryptedPath, uploadPassphrase, cancellationToken).ConfigureAwait(false);
+            var encryption = await transferCrypto.EncryptFileAsync(sourcePath, encryptedPath, passphrase, cancellationToken).ConfigureAwait(false);
             SetOperationProgress("Creating transfer metadata", 0.4f);
             var transfer = await apiClient.CreateTransferAsync(ApiBaseUrl, TesterKey, new CreateTransferRequest(Path.GetFileName(sourcePath), encryption.PlaintextSha256, encryption.EncryptedSize, 10_800), cancellationToken).ConfigureAwait(false);
             SetOperationProgress("Uploading encrypted blob", 0.65f);
@@ -572,7 +567,8 @@ public sealed class MainWindow : Window, IDisposable
             uploadResult = "Selected contact is missing a public key. Re-add them using their combined identity.";
             return;
         }
-        await EncryptAndUploadAsync(cancellationToken).ConfigureAwait(false);
+        var transferSecret = CreateTransferSecret();
+        await EncryptAndUploadAsync(transferSecret, cancellationToken).ConfigureAwait(false);
         if (!IsTransferId(lastTransferId))
         {
             uploadResult = "Upload failed before a send request could be created.";
@@ -582,7 +578,7 @@ public sealed class MainWindow : Window, IDisposable
         var wrappedPassphrase = IdentityService.WrapPassphrase(
             configuration.X25519PrivateKeyBase64,
             contact.PublicKeyBase64,
-            uploadPassphrase);
+            transferSecret);
 
         SetOperationProgress("Creating contact send request", 0.95f);
         var request = await apiClient.CreateSendRequestAsync(
@@ -661,12 +657,13 @@ public sealed class MainWindow : Window, IDisposable
         try
         {
             var result = penumbra.InstallMod(lastReceivedPmp);
-            receiveResult = $"Penumbra InstallMod result code: {result.ResultCode}. Success means queued for install, not guaranteed fully installed.";
-            if (result.QueuedForInstall && configuration.DeleteAfterSuccessfulPenumbraImport)
+            if (result.QueuedForInstall)
             {
-                TryDelete(lastReceivedPmp);
-                verifiedReceiveReady = false;
-                receiveResult += "\nDeleted local decrypted .pmp after successful Penumbra queue.";
+                receiveResult = $"Penumbra queued import with result code {result.ResultCode}. Kept verified .pmp so it can be retried if Penumbra import fails.";
+            }
+            else
+            {
+                receiveResult = $"Penumbra import was not queued. Result code: {result.ResultCode}. Kept verified .pmp: {lastReceivedPmp}";
             }
         }
         catch (Exception ex)
@@ -704,10 +701,22 @@ public sealed class MainWindow : Window, IDisposable
             uploadResult = "Selected contact is missing a public key.";
             return false;
         }
-        if (!ValidateUploadInputs())
+        if (!ValidateUploadPath())
         {
             return false;
         }
+        return true;
+    }
+
+    private bool ValidateUploadPath()
+    {
+        var path = uploadPlaintextPath.Trim('"', ' ');
+        if (!File.Exists(path) || !path.EndsWith(".pmp", StringComparison.OrdinalIgnoreCase))
+        {
+            uploadResult = "Choose an existing .pmp file.";
+            return false;
+        }
+
         return true;
     }
 
@@ -743,6 +752,9 @@ public sealed class MainWindow : Window, IDisposable
     }
 
     private bool CanStartOperation() => !isBusy;
+
+    private static string CreateTransferSecret() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     private static bool DrawActionButton(string label, bool enabled)
     {

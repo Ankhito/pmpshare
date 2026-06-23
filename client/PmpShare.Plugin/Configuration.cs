@@ -30,7 +30,7 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool PenumbraImportRequiresConfirmation { get; set; } = true;
 
-    public bool DeleteAfterSuccessfulPenumbraImport { get; set; } = true;
+    public bool DeleteAfterSuccessfulPenumbraImport { get; set; }
 
     public bool KeepDownloadedPmpIfImportFails { get; set; } = true;
 
