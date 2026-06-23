@@ -230,7 +230,7 @@ public sealed class MainWindow : Window, IDisposable
                 DrawTextInput("Manual transfer passphrase", "Only used for manual share-code uploads", ref uploadPassphrase, 512, ImGuiInputTextFlags.Password);
                 if (DrawActionButton("Upload / Share Code", CanStartOperation()) && ValidateUploadInputs())
                 {
-                    StartOperation(async token => await EncryptAndUploadAsync(uploadPassphrase, token).ConfigureAwait(false));
+                    StartOperation(async token => await EncryptAndUploadAsync(uploadPassphrase, cleanupPenumbraExportAfterUpload: true, token).ConfigureAwait(false));
                 }
 
                 if (!string.IsNullOrWhiteSpace(lastTransferId))
@@ -399,24 +399,8 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawSettingsTab()
     {
-        var autoImport = configuration.AutoImportToPenumbraAfterReceive;
-        if (ImGui.Checkbox("Auto import to Penumbra after receive", ref autoImport))
-        {
-            configuration.AutoImportToPenumbraAfterReceive = autoImport;
-            configuration.Save();
-        }
-        var requiresConfirmation = configuration.PenumbraImportRequiresConfirmation;
-        if (ImGui.Checkbox("Penumbra import requires confirmation", ref requiresConfirmation))
-        {
-            configuration.PenumbraImportRequiresConfirmation = requiresConfirmation;
-            configuration.Save();
-        }
-        var keepIfImportFails = configuration.KeepDownloadedPmpIfImportFails;
-        if (ImGui.Checkbox("Keep downloaded PMP if import fails", ref keepIfImportFails))
-        {
-            configuration.KeepDownloadedPmpIfImportFails = keepIfImportFails;
-            configuration.Save();
-        }
+        ImGui.TextWrapped("Penumbra import is manual for now because Penumbra IPC only confirms that an import was queued, not that it fully succeeded.");
+        ImGui.TextWrapped("Verified downloads are kept in the staging folder so import can be retried if Penumbra does not complete it.");
     }
 
     private void DrawPenumbraModSelector()
@@ -474,7 +458,7 @@ public sealed class MainWindow : Window, IDisposable
         return configuration.Contacts[selectedContactIndex];
     }
 
-    private async Task EncryptAndUploadAsync(string passphrase, CancellationToken cancellationToken)
+    private async Task EncryptAndUploadAsync(string passphrase, bool cleanupPenumbraExportAfterUpload, CancellationToken cancellationToken)
     {
         var sourcePath = uploadPlaintextPath.Trim('"', ' ');
         var encryptedPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pmpshare.bin");
@@ -492,7 +476,10 @@ public sealed class MainWindow : Window, IDisposable
             lastMetadataUrl = new Uri(new Uri(ApiBaseUrl), transfer.MetadataUrl).ToString();
             SetOperationProgress("Upload complete", 1f);
             uploadResult = "Upload complete.";
-            TryDeleteUsedPenumbraExport(sourcePath);
+            if (cleanupPenumbraExportAfterUpload)
+            {
+                TryDeleteUsedPenumbraExport(sourcePath);
+            }
         }
         finally
         {
@@ -536,12 +523,8 @@ public sealed class MainWindow : Window, IDisposable
             lastReceivedPmp = finalPath;
             verifiedReceiveReady = true;
             SetOperationProgress("Receive complete", 1f);
-            receiveResult = $"Verified and saved: {finalPath}";
-            if (configuration.AutoImportToPenumbraAfterReceive && !configuration.PenumbraImportRequiresConfirmation)
-            {
-                ImportLastReceivedToPenumbra();
-            }
-            else if (!penumbra.CurrentStatus.IsAvailable)
+            receiveResult = $"Verified and saved: {finalPath}\nUse Import to Penumbra when ready.";
+            if (!penumbra.CurrentStatus.IsAvailable)
             {
                 receiveResult += "\nPenumbra unavailable; file saved only.";
             }
@@ -568,7 +551,8 @@ public sealed class MainWindow : Window, IDisposable
             return;
         }
         var transferSecret = CreateTransferSecret();
-        await EncryptAndUploadAsync(transferSecret, cancellationToken).ConfigureAwait(false);
+        var sourcePath = uploadPlaintextPath.Trim('"', ' ');
+        await EncryptAndUploadAsync(transferSecret, cleanupPenumbraExportAfterUpload: false, cancellationToken).ConfigureAwait(false);
         if (!IsTransferId(lastTransferId))
         {
             uploadResult = "Upload failed before a send request could be created.";
@@ -597,14 +581,27 @@ public sealed class MainWindow : Window, IDisposable
             cancellationToken).ConfigureAwait(false);
         SetOperationProgress("Send request ready", 1f);
         uploadResult = $"Send request created: {request.RequestId}. Receiver can accept and decrypt automatically.";
+        TryDeleteUsedPenumbraExport(sourcePath);
     }
 
     private async Task RefreshInboxAsync(CancellationToken cancellationToken)
     {
+        await RefreshInboxAsync(cancellationToken, updateReceiveResult: true).ConfigureAwait(false);
+    }
+
+    private async Task RefreshInboxAsync(CancellationToken cancellationToken, bool updateReceiveResult)
+    {
         SetOperationProgress("Refreshing inbox", 0.4f);
         inbox = (await apiClient.GetInboxAsync(ApiBaseUrl, TesterKey, configuration.PmpShareId, cancellationToken).ConfigureAwait(false)).ToList();
         SetOperationProgress("Inbox refreshed", 1f);
-        receiveResult = $"Loaded {inbox.Count} inbox request(s).";
+        if (updateReceiveResult)
+        {
+            receiveResult = $"Loaded {inbox.Count} inbox request(s).";
+        }
+        else
+        {
+            statusText = $"Inbox refreshed: {inbox.Count} request(s).";
+        }
     }
 
     private async Task AcceptRequestAsync(SendRequest request, CancellationToken cancellationToken)
@@ -617,7 +614,7 @@ public sealed class MainWindow : Window, IDisposable
             string.IsNullOrWhiteSpace(accepted.EncryptedPassphraseNonce))
         {
             receiveResult = "Request accepted, but it did not include an encrypted passphrase envelope.";
-            await RefreshInboxAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshInboxAsync(cancellationToken, updateReceiveResult: false).ConfigureAwait(false);
             return;
         }
 
@@ -630,7 +627,8 @@ public sealed class MainWindow : Window, IDisposable
             accepted.EncryptedPassphraseNonce);
         receiveResult = "Request accepted. Passphrase unwrapped locally; downloading transfer...";
         await DownloadDecryptAndVerifyAsync(cancellationToken).ConfigureAwait(false);
-        await RefreshInboxAsync(cancellationToken).ConfigureAwait(false);
+        downloadPassphrase = string.Empty;
+        await RefreshInboxAsync(cancellationToken, updateReceiveResult: false).ConfigureAwait(false);
     }
 
     private async Task DeclineRequestAsync(SendRequest request, CancellationToken cancellationToken)
@@ -638,7 +636,8 @@ public sealed class MainWindow : Window, IDisposable
         SetOperationProgress("Declining request", 0.5f);
         await apiClient.DeclineSendRequestAsync(ApiBaseUrl, TesterKey, request.RequestId, cancellationToken).ConfigureAwait(false);
         SetOperationProgress("Request declined", 1f);
-        await RefreshInboxAsync(cancellationToken).ConfigureAwait(false);
+        await RefreshInboxAsync(cancellationToken, updateReceiveResult: false).ConfigureAwait(false);
+        receiveResult = "Request declined.";
     }
 
     private void ImportLastReceivedToPenumbra()
