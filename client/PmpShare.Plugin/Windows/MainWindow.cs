@@ -202,6 +202,7 @@ public sealed class MainWindow : Window, IDisposable
 
         if (DrawActionButton("Send to Contact", CanStartOperation()) && ValidateSendRequestInputs())
         {
+            EnsureDefaultDisplayName(getLocalCharacterName());
             StartOperation(async token => await CreateSendRequestAsync(token).ConfigureAwait(false));
         }
 
@@ -1086,7 +1087,7 @@ public sealed class MainWindow : Window, IDisposable
         string.IsNullOrWhiteSpace(displayName) ? fallback : displayName.Trim();
 
     private string GetSenderDisplayName() =>
-        DisplayNameOrFallback(configuration.DisplayName, DisplayNameOrFallback(getLocalCharacterName()));
+        DisplayNameOrFallback(configuration.DisplayName);
 
     private void EnsureDefaultDisplayName(string localCharacterName)
     {

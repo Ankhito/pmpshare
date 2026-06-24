@@ -31,6 +31,9 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService]
     internal static IObjectTable ObjectTable { get; private set; } = null!;
 
+    [PluginService]
+    internal static IFramework Framework { get; private set; } = null!;
+
     public Configuration Configuration { get; }
 
     private readonly WindowSystem windowSystem = new("PmpShare");
@@ -129,8 +132,11 @@ public sealed class Plugin : IDalamudPlugin
                 MainWindow.TesterKey,
                 Configuration.PmpShareId,
                 cancellationToken).ConfigureAwait(false);
-            mainWindow.ApplyInboxSnapshotFromPoll(requests);
-            NotifyNewPendingRequests(requests);
+            await Framework.RunOnFrameworkThread(() =>
+            {
+                mainWindow.ApplyInboxSnapshotFromPoll(requests);
+                NotifyNewPendingRequests(requests);
+            }).ConfigureAwait(false);
             return requests.Any(request => string.Equals(request.Status, "pending", StringComparison.OrdinalIgnoreCase));
         }
         catch (OperationCanceledException)
