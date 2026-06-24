@@ -17,7 +17,7 @@ Current command:
 - Decrypts locally with the passphrase.
 - Calls `/complete` only after decrypt succeeds and SHA-256 matches, which deletes the server blob.
 - Can import a verified received `.pmp` through Penumbra IPC.
-- Can list installed Penumbra mods and find matching exported `.pmp` files for sending.
+- Can list, search, package, and send installed Penumbra mods without requiring a manual export first.
 - Creates a local PmpShare identity with a `ps_...` ID and X25519 keypair.
 - Copies a one-paste identity string in the format `ps_....publicKeyBase64`.
 - Can create and view Worker-backed send requests for manually added contacts.
@@ -41,15 +41,14 @@ PmpShare uses Penumbra IPC for status, mod listing, mod paths, and `Penumbra.Ins
 
 PmpShare never auto-enables a Penumbra mod.
 
-There is no verified public Penumbra export IPC in the installed API docs, so sending an installed Penumbra mod uses export-folder fallback:
+There is no verified public Penumbra export IPC in the installed API docs. Penumbra's own export button creates a `.pmp` by zipping the mod folder while skipping `.bak` files, so PmpShare mirrors that behavior into a temporary package:
 
-1. Export the mod to `.pmp` through Penumbra.
-2. Set the export folder in PmpShare settings.
-3. Select the installed mod.
-4. Click `Find Exported PMP`.
-5. Send the detected `.pmp`.
+1. Select the installed mod in PmpShare.
+2. PmpShare writes a temporary `.pmp` package in the system temp folder.
+3. PmpShare encrypts and uploads that package.
+4. PmpShare deletes the temporary package after the send attempt.
 
-PmpShare does not modify or package the original Penumbra mod folder.
+PmpShare does not modify the original Penumbra mod folder.
 
 ## Install Cleanup
 

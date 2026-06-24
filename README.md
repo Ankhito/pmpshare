@@ -6,7 +6,7 @@ Current milestone: a Cloudflare Worker relay API backed by Cloudflare R2, plus a
 
 PmpShare is not a Mare replacement, not a permanent mod host, and not a public browsing or search service. The Dalamud client is for private testing only and is not a normal Dalamud release.
 
-The testing client can import verified received `.pmp` files through Penumbra IPC, but it never auto-enables mods. Installed Penumbra mods can be selected for sending only by finding an already exported `.pmp`; PmpShare does not fake an export IPC or modify Penumbra mod folders.
+The testing client can import verified received `.pmp` files through Penumbra IPC, but it never auto-enables mods. Installed Penumbra mods can be selected for sending; PmpShare packages the selected mod folder into a temporary `.pmp`, uploads it, and deletes that temporary package without modifying the original Penumbra mod folder.
 
 ## Repository Layout
 

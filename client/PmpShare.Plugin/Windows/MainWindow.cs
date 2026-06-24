@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Numerics;
 using System.Security.Cryptography;
 using Dalamud.Interface.ImGuiFileDialog;
@@ -27,13 +28,12 @@ public sealed class MainWindow : Window, IDisposable
     private string downloadTransferId = string.Empty;
     private string downloadDirectory;
     private string downloadPassphrase = string.Empty;
-    private string penumbraExportFolder;
     private string contactName = string.Empty;
     private string contactIdentity = string.Empty;
     private string selectedModDirectory = string.Empty;
     private string selectedModName = string.Empty;
     private string selectedModPath = string.Empty;
-    private string foundExportedPmp = string.Empty;
+    private string modSearch = string.Empty;
     private string lastReceivedPmp = string.Empty;
     private string statusText = string.Empty;
     private string uploadResult = string.Empty;
@@ -68,7 +68,6 @@ public sealed class MainWindow : Window, IDisposable
         downloadDirectory = string.IsNullOrWhiteSpace(configuration.LastDownloadDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "PmpShare")
             : configuration.LastDownloadDirectory;
-        penumbraExportFolder = configuration.PenumbraExportFolder;
         Size = new Vector2(860, 650);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
@@ -142,49 +141,15 @@ public sealed class MainWindow : Window, IDisposable
         if (sendFromPenumbraMod)
         {
             DrawPenumbraModSelector();
-            ImGui.TextWrapped("PmpShare stages temporary encrypted upload files automatically. Penumbra can export mods in its UI, but the installed public Penumbra API does not expose an export IPC, so installed-mod sends need the folder where Penumbra writes exported .pmp files.");
-            if (DrawPathInput("Penumbra export folder", "Folder where Penumbra writes exported .pmp files", ref penumbraExportFolder, 1024, "Browse##PenumbraExportFolder", () =>
-                {
-                    OpenFolderPicker("Select Penumbra export folder", penumbraExportFolder, selected =>
-                    {
-                        penumbraExportFolder = selected;
-                        configuration.PenumbraExportFolder = selected;
-                        configuration.Save();
-                    });
-                }))
-            {
-                configuration.PenumbraExportFolder = penumbraExportFolder;
-                configuration.Save();
-            }
-            var deleteExportAfterUpload = configuration.DeletePenumbraExportAfterUpload;
-            if (ImGui.Checkbox("Delete selected export after successful upload", ref deleteExportAfterUpload))
-            {
-                configuration.DeletePenumbraExportAfterUpload = deleteExportAfterUpload;
-                configuration.Save();
-            }
-            if (ImGui.Button("Find Exported PMP"))
-            {
-                foundExportedPmp = FindExportedPmp(selectedModName, penumbraExportFolder) ?? string.Empty;
-                uploadPlaintextPath = foundExportedPmp;
-                uploadResult = string.IsNullOrEmpty(foundExportedPmp) ? "No matching exported .pmp found." : $"Found {foundExportedPmp}";
-            }
-
-            ImGui.SameLine();
+            ImGui.TextWrapped("PmpShare will package the selected Penumbra mod into a temporary .pmp, upload it, then delete the temporary package. Original Penumbra mod files are not changed.");
             if (ImGui.Button("Open Penumbra Mod Folder"))
             {
                 OpenFolder(selectedModPath);
             }
 
-            ImGui.SameLine();
-            if (ImGui.Button("Open Export Folder"))
-            {
-                OpenFolder(penumbraExportFolder);
-            }
             ImGui.TextWrapped($"Selected mod path: {selectedModPath}");
-            ImGui.TextWrapped($"Found exported PMP: {foundExportedPmp}");
         }
-
-        if (DrawPathInput("PMP file to send", @"C:\path\to\mod.pmp", ref uploadPlaintextPath, 1024, "Browse##UploadPmp", () =>
+        else if (DrawPathInput("PMP file to send", @"C:\path\to\mod.pmp", ref uploadPlaintextPath, 1024, "Browse##UploadPmp", () =>
             {
                 OpenFilePicker("Select PMP file to send", ".pmp{.pmp}", uploadPlaintextPath, selected =>
                 {
@@ -230,7 +195,7 @@ public sealed class MainWindow : Window, IDisposable
                 DrawTextInput("Manual transfer passphrase", "Only used for manual share-code uploads", ref uploadPassphrase, 512, ImGuiInputTextFlags.Password);
                 if (DrawActionButton("Upload / Share Code", CanStartOperation()) && ValidateUploadInputs())
                 {
-                    StartOperation(async token => await EncryptAndUploadAsync(uploadPassphrase, cleanupPenumbraExportAfterUpload: true, token).ConfigureAwait(false));
+                    StartOperation(async token => await EncryptAndUploadAsync(uploadPassphrase, token).ConfigureAwait(false));
                 }
 
                 if (!string.IsNullOrWhiteSpace(lastTransferId))
@@ -410,25 +375,44 @@ public sealed class MainWindow : Window, IDisposable
             penumbra.RefreshStatus();
         }
 
-        foreach (var (directory, name) in penumbra.CurrentStatus.InstalledMods.OrderBy(kvp => kvp.Value))
+        DrawTextInput("Search installed mods", "Type part of the mod name", ref modSearch, 256);
+        var mods = penumbra.CurrentStatus.InstalledMods
+            .Select(kvp => (Directory: kvp.Key, Name: kvp.Value, Display: FormatModDisplayName(kvp.Key, kvp.Value)))
+            .Where(mod => string.IsNullOrWhiteSpace(modSearch) ||
+                mod.Display.Contains(modSearch, StringComparison.OrdinalIgnoreCase) ||
+                mod.Directory.Contains(modSearch, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(mod => mod.Display)
+            .ToList();
+        ImGui.TextUnformatted($"Showing {mods.Count} of {penumbra.CurrentStatus.InstalledMods.Count} installed mod(s)");
+        if (ImGui.BeginChild("##PenumbraModList", new Vector2(0, 220), true))
         {
-            if (ImGui.Selectable(FormatModDisplayName(directory, name), selectedModDirectory == directory))
+            if (mods.Count == 0)
             {
-                selectedModDirectory = directory;
-                selectedModName = name;
-                try
+                ImGui.TextDisabled("No matching mods.");
+            }
+
+            foreach (var mod in mods)
+            {
+                if (ImGui.Selectable(mod.Display, selectedModDirectory == mod.Directory))
                 {
-                    var path = penumbra.GetModPath(directory, name);
-                    selectedModPath = path.Path;
-                    penumbraResult = $"GetModPath result: {path.ResultCode}";
-                }
-                catch (Exception ex)
-                {
-                    selectedModPath = string.Empty;
-                    penumbraResult = ex.Message;
+                    selectedModDirectory = mod.Directory;
+                    selectedModName = mod.Name;
+                    try
+                    {
+                        var path = penumbra.GetModPath(mod.Directory, mod.Name);
+                        selectedModPath = path.Path;
+                        penumbraResult = $"GetModPath result: {path.ResultCode}";
+                    }
+                    catch (Exception ex)
+                    {
+                        selectedModPath = string.Empty;
+                        penumbraResult = ex.Message;
+                    }
                 }
             }
         }
+
+        ImGui.EndChild();
     }
 
     private Contact? DrawContactSelector()
@@ -458,7 +442,7 @@ public sealed class MainWindow : Window, IDisposable
         return configuration.Contacts[selectedContactIndex];
     }
 
-    private async Task EncryptAndUploadAsync(string passphrase, bool cleanupPenumbraExportAfterUpload, CancellationToken cancellationToken)
+    private async Task EncryptAndUploadAsync(string passphrase, CancellationToken cancellationToken)
     {
         var sourcePath = uploadPlaintextPath.Trim('"', ' ');
         var encryptedPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pmpshare.bin");
@@ -476,10 +460,6 @@ public sealed class MainWindow : Window, IDisposable
             lastMetadataUrl = new Uri(new Uri(ApiBaseUrl), transfer.MetadataUrl).ToString();
             SetOperationProgress("Upload complete", 1f);
             uploadResult = "Upload complete.";
-            if (cleanupPenumbraExportAfterUpload)
-            {
-                TryDeleteUsedPenumbraExport(sourcePath);
-            }
         }
         finally
         {
@@ -550,38 +530,60 @@ public sealed class MainWindow : Window, IDisposable
             uploadResult = "Selected contact is missing a public key. Re-add them using their combined identity.";
             return;
         }
+
         var transferSecret = CreateTransferSecret();
-        var sourcePath = uploadPlaintextPath.Trim('"', ' ');
-        await EncryptAndUploadAsync(transferSecret, cleanupPenumbraExportAfterUpload: false, cancellationToken).ConfigureAwait(false);
-        if (!IsTransferId(lastTransferId))
+        var originalUploadPath = uploadPlaintextPath;
+        var temporaryPackagePath = string.Empty;
+        try
         {
-            uploadResult = "Upload failed before a send request could be created.";
-            return;
+            if (sendFromPenumbraMod)
+            {
+                temporaryPackagePath = await PackageSelectedPenumbraModAsync(cancellationToken).ConfigureAwait(false);
+                uploadPlaintextPath = temporaryPackagePath;
+            }
+
+            await EncryptAndUploadAsync(transferSecret, cancellationToken).ConfigureAwait(false);
+            if (!IsTransferId(lastTransferId))
+            {
+                uploadResult = "Upload failed before a send request could be created.";
+                return;
+            }
+
+            var wrappedPassphrase = IdentityService.WrapPassphrase(
+                configuration.X25519PrivateKeyBase64,
+                contact.PublicKeyBase64,
+                transferSecret);
+
+            SetOperationProgress("Creating contact send request", 0.95f);
+            var request = await apiClient.CreateSendRequestAsync(
+                ApiBaseUrl,
+                TesterKey,
+                new CreateSendRequestRequest(
+                    configuration.PmpShareId,
+                    contact.PmpShareId,
+                    "PmpShare tester",
+                    lastTransferId,
+                    configuration.X25519PublicKeyBase64,
+                    wrappedPassphrase.CiphertextBase64,
+                    wrappedPassphrase.NonceBase64,
+                    "Encrypted PmpShare transfer",
+                    10_800),
+                cancellationToken).ConfigureAwait(false);
+            SetOperationProgress("Send request ready", 1f);
+            uploadResult = $"Send request created: {request.RequestId}. Receiver can accept and decrypt automatically.";
+            if (!string.IsNullOrWhiteSpace(temporaryPackagePath))
+            {
+                uploadResult += "\nDeleted temporary Penumbra package.";
+            }
         }
-
-        var wrappedPassphrase = IdentityService.WrapPassphrase(
-            configuration.X25519PrivateKeyBase64,
-            contact.PublicKeyBase64,
-            transferSecret);
-
-        SetOperationProgress("Creating contact send request", 0.95f);
-        var request = await apiClient.CreateSendRequestAsync(
-            ApiBaseUrl,
-            TesterKey,
-            new CreateSendRequestRequest(
-                configuration.PmpShareId,
-                contact.PmpShareId,
-                "PmpShare tester",
-                lastTransferId,
-                configuration.X25519PublicKeyBase64,
-                wrappedPassphrase.CiphertextBase64,
-                wrappedPassphrase.NonceBase64,
-                "Encrypted PmpShare transfer",
-                10_800),
-            cancellationToken).ConfigureAwait(false);
-        SetOperationProgress("Send request ready", 1f);
-        uploadResult = $"Send request created: {request.RequestId}. Receiver can accept and decrypt automatically.";
-        TryDeleteUsedPenumbraExport(sourcePath);
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(temporaryPackagePath))
+            {
+                TryDelete(temporaryPackagePath);
+                uploadPlaintextPath = originalUploadPath;
+            }
+        }
     }
 
     private async Task RefreshInboxAsync(CancellationToken cancellationToken)
@@ -709,10 +711,39 @@ public sealed class MainWindow : Window, IDisposable
 
     private bool ValidateUploadPath()
     {
+        if (sendFromPenumbraMod)
+        {
+            return ValidateSelectedPenumbraMod();
+        }
+
         var path = uploadPlaintextPath.Trim('"', ' ');
         if (!File.Exists(path) || !path.EndsWith(".pmp", StringComparison.OrdinalIgnoreCase))
         {
             uploadResult = "Choose an existing .pmp file.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateSelectedPenumbraMod()
+    {
+        if (string.IsNullOrWhiteSpace(selectedModDirectory) || string.IsNullOrWhiteSpace(selectedModPath))
+        {
+            uploadResult = "Select an installed Penumbra mod first.";
+            return false;
+        }
+
+        if (!Directory.Exists(selectedModPath))
+        {
+            uploadResult = "Selected Penumbra mod folder was not found. Refresh Penumbra status and select it again.";
+            return false;
+        }
+
+        var modRoot = penumbra.CurrentStatus.ModRoot;
+        if (!string.IsNullOrWhiteSpace(modRoot) && !IsSubpathOf(selectedModPath, modRoot))
+        {
+            uploadResult = "Selected Penumbra mod path is outside the Penumbra mod root.";
             return false;
         }
 
@@ -906,34 +937,35 @@ public sealed class MainWindow : Window, IDisposable
         });
     }
 
-    private static string? FindExportedPmp(string modName, string exportFolder)
+    private async Task<string> PackageSelectedPenumbraModAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(modName) || string.IsNullOrWhiteSpace(exportFolder) || !Directory.Exists(exportFolder))
+        if (!ValidateSelectedPenumbraMod())
         {
-            return null;
+            throw new InvalidOperationException(uploadResult);
         }
-        var normalized = NormalizeName(modName);
-        return Directory.EnumerateFiles(exportFolder, "*.pmp", SearchOption.AllDirectories)
-            .Select(path => new FileInfo(path))
-            .Where(file => NormalizeName(Path.GetFileNameWithoutExtension(file.Name)).Contains(normalized, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .FirstOrDefault()
-            ?.FullName;
+
+        SetOperationProgress("Packaging selected Penumbra mod", 0.05f);
+        uploadResult = "Packaging selected Penumbra mod...";
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "PmpShare", "penumbra-packages");
+        Directory.CreateDirectory(stagingDirectory);
+        var packageName = $"{SafeFileName(StripKnownModSuffix(selectedModDirectory))}-{Guid.NewGuid():N}.pmp";
+        var packagePath = Path.Combine(stagingDirectory, packageName);
+        var sourceDirectory = Path.GetFullPath(selectedModPath);
+        await Task.Run(() => CreatePmpFromDirectory(sourceDirectory, packagePath, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return packagePath;
     }
 
-    private void TryDeleteUsedPenumbraExport(string sourcePath)
+    private static void CreatePmpFromDirectory(string sourceDirectory, string packagePath, CancellationToken cancellationToken)
     {
-        if (!configuration.DeletePenumbraExportAfterUpload ||
-            string.IsNullOrWhiteSpace(foundExportedPmp) ||
-            !Path.GetFullPath(sourcePath).Equals(Path.GetFullPath(foundExportedPmp), StringComparison.OrdinalIgnoreCase))
+        using var fileStream = new FileStream(packagePath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Create);
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories)
+                     .Where(path => !string.Equals(Path.GetExtension(path), ".bak", StringComparison.OrdinalIgnoreCase)))
         {
-            return;
+            cancellationToken.ThrowIfCancellationRequested();
+            var relativePath = Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/');
+            archive.CreateEntryFromFile(file, relativePath, CompressionLevel.SmallestSize);
         }
-
-        TryDelete(foundExportedPmp);
-        foundExportedPmp = string.Empty;
-        uploadPlaintextPath = string.Empty;
-        uploadResult += "\nDeleted selected Penumbra export after successful upload.";
     }
 
     private static string NormalizeName(string value) =>
@@ -967,6 +999,22 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         return trimmed;
+    }
+
+    private static string SafeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "penumbra-mod" : cleaned;
+    }
+
+    private static bool IsSubpathOf(string childPath, string parentPath)
+    {
+        var child = Path.GetFullPath(childPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parent = Path.GetFullPath(parentPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return child.Equals(parent, StringComparison.OrdinalIgnoreCase) ||
+            child.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+            child.StartsWith(parent + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void OpenFolder(string path)
