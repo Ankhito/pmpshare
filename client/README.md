@@ -18,8 +18,10 @@ Current command:
 - Calls `/complete` only after decrypt succeeds and SHA-256 matches, which deletes the server blob.
 - Can import a verified received `.pmp` through Penumbra IPC.
 - Can list, search, package, and send installed Penumbra mods without requiring a manual export first.
+- Keeps the main tabs pinned while long tab content scrolls underneath.
 - Creates a local PmpShare identity with a `ps_...` ID and X25519 keypair.
 - Copies a one-paste identity string in the format `ps_....publicKeyBase64`.
+- Keeps a separate editable display name for send-request metadata; the identity itself stays account-level.
 - Can create and view Worker-backed send requests for manually added contacts.
 - Polls for pending inbox requests, backs off to hourly checks after idle empty polls, and prints a chat notification when a new receive request appears.
 - Wraps transfer passphrases locally with X25519 ECDH plus AES-GCM so accepted requests can download, decrypt, and verify without manual passphrase entry.

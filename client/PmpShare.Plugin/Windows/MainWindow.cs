@@ -21,6 +21,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly PmpShareApiClient apiClient;
     private readonly TransferCrypto transferCrypto;
     private readonly PenumbraIpcService penumbra;
+    private readonly Func<string> getLocalCharacterName;
     private readonly FileDialogManager fileDialogManager = new();
 
     private string uploadPlaintextPath;
@@ -57,13 +58,15 @@ public sealed class MainWindow : Window, IDisposable
         Configuration configuration,
         PmpShareApiClient apiClient,
         TransferCrypto transferCrypto,
-        PenumbraIpcService penumbra)
+        PenumbraIpcService penumbra,
+        Func<string> getLocalCharacterName)
         : base("PmpShare###PmpShareMainWindow")
     {
         this.configuration = configuration;
         this.apiClient = apiClient;
         this.transferCrypto = transferCrypto;
         this.penumbra = penumbra;
+        this.getLocalCharacterName = getLocalCharacterName;
         uploadPlaintextPath = configuration.LastUploadPath;
         downloadDirectory = string.IsNullOrWhiteSpace(configuration.LastDownloadDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "PmpShare")
@@ -108,13 +111,30 @@ public sealed class MainWindow : Window, IDisposable
         {
             return;
         }
-        draw();
+
+        var available = ImGui.GetContentRegionAvail();
+        if (ImGui.BeginChild($"##{label}Content", available, false))
+        {
+            draw();
+        }
+
+        ImGui.EndChild();
         ImGui.EndTabItem();
     }
 
     private void DrawStatusTab()
     {
         var penumbraStatus = penumbra.CurrentStatus;
+        var localCharacterName = getLocalCharacterName();
+        EnsureDefaultDisplayName(localCharacterName);
+        var displayName = configuration.DisplayName;
+        DrawTextInput("My display name", "Sent with requests so receivers know who sent them", ref displayName, 128);
+        if (displayName != configuration.DisplayName)
+        {
+            configuration.DisplayName = displayName;
+            configuration.Save();
+        }
+
         var combinedIdentity = IdentityService.CombinedIdentity(configuration);
         ImGui.TextUnformatted("My PmpShare Identity");
         ImGui.TextWrapped(combinedIdentity);
@@ -151,12 +171,10 @@ public sealed class MainWindow : Window, IDisposable
         {
             DrawPenumbraModSelector();
             ImGui.TextWrapped("PmpShare will package the selected Penumbra mod into a temporary .pmp, upload it, then delete the temporary package. Original Penumbra mod files are not changed.");
-            if (ImGui.Button("Open Penumbra Mod Folder"))
+            if (!string.IsNullOrWhiteSpace(selectedModName))
             {
-                OpenFolder(selectedModPath);
+                ImGui.TextWrapped($"Selected mod: {FormatModDisplayName(selectedModDirectory, selectedModName)}");
             }
-
-            ImGui.TextWrapped($"Selected mod path: {selectedModPath}");
         }
         else if (DrawPathInput("PMP file to send", @"C:\path\to\mod.pmp", ref uploadPlaintextPath, 1024, "Browse##UploadPmp", () =>
             {
@@ -302,13 +320,13 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawContactsTab()
     {
-        DrawTextInput("Display name", "Friendly name for this contact", ref contactName, 128);
+        DrawTextInput("Display name", "Optional; defaults to the PmpShare ID", ref contactName, 128);
         DrawTextInput("PmpShare identity", "Paste ps_xxx.publicKeyBase64 from their Status tab", ref contactIdentity, 256);
         if (ImGui.Button("Add contact"))
         {
-            if (string.IsNullOrWhiteSpace(contactName) || string.IsNullOrWhiteSpace(contactIdentity))
+            if (string.IsNullOrWhiteSpace(contactIdentity))
             {
-                contactResult = "Display name and PmpShare identity are required.";
+                contactResult = "PmpShare identity is required.";
             }
             else if (!IdentityService.TryParseCombinedIdentity(contactIdentity, out var pmpShareId, out var publicKeyBase64))
             {
@@ -316,9 +334,12 @@ public sealed class MainWindow : Window, IDisposable
             }
             else
             {
+                var displayName = string.IsNullOrWhiteSpace(contactName)
+                    ? pmpShareId
+                    : contactName.Trim();
                 configuration.Contacts.Add(new Contact
                 {
-                    DisplayName = contactName.Trim(),
+                    DisplayName = displayName,
                     PmpShareId = pmpShareId,
                     PublicKeyBase64 = publicKeyBase64,
                 });
@@ -367,7 +388,14 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.TextWrapped($"Mod root: {status.ModRoot}");
         ImGui.TextWrapped($"Last error: {status.LastError}");
         DrawPenumbraModSelector();
-        ImGui.TextWrapped($"Selected mod path: {selectedModPath}");
+        if (!string.IsNullOrWhiteSpace(selectedModName))
+        {
+            ImGui.TextWrapped($"Selected mod: {FormatModDisplayName(selectedModDirectory, selectedModName)}");
+            if (ImGui.Button("Open selected mod folder"))
+            {
+                OpenFolder(selectedModPath);
+            }
+        }
         ImGui.TextWrapped(penumbraResult);
     }
 
@@ -570,12 +598,12 @@ public sealed class MainWindow : Window, IDisposable
                 new CreateSendRequestRequest(
                     configuration.PmpShareId,
                     contact.PmpShareId,
-                    "PmpShare tester",
+                    GetSenderDisplayName(),
                     lastTransferId,
                     configuration.X25519PublicKeyBase64,
                     wrappedPassphrase.CiphertextBase64,
                     wrappedPassphrase.NonceBase64,
-                    "Encrypted PmpShare transfer",
+                    $"Sending {Path.GetFileNameWithoutExtension(uploadPlaintextPath)}",
                     10_800),
                 cancellationToken).ConfigureAwait(false);
             SetOperationProgress("Send request ready", 1f);
@@ -590,6 +618,7 @@ public sealed class MainWindow : Window, IDisposable
             if (!string.IsNullOrWhiteSpace(temporaryPackagePath))
             {
                 TryDelete(temporaryPackagePath);
+                TryDeleteDirectory(Path.GetDirectoryName(temporaryPackagePath));
                 uploadPlaintextPath = originalUploadPath;
             }
         }
@@ -956,9 +985,10 @@ public sealed class MainWindow : Window, IDisposable
         SetOperationProgress("Packaging selected Penumbra mod", 0.05f);
         uploadResult = "Packaging selected Penumbra mod...";
         var stagingDirectory = Path.Combine(Path.GetTempPath(), "PmpShare", "penumbra-packages");
-        Directory.CreateDirectory(stagingDirectory);
-        var packageName = $"{SafeFileName(StripKnownModSuffix(selectedModDirectory))}-{Guid.NewGuid():N}.pmp";
-        var packagePath = Path.Combine(stagingDirectory, packageName);
+        var packageDirectory = Path.Combine(stagingDirectory, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(packageDirectory);
+        var packageName = $"{SafeFileName(StripKnownModSuffix(selectedModDirectory))}.pmp";
+        var packagePath = Path.Combine(packageDirectory, packageName);
         var sourceDirectory = Path.GetFullPath(selectedModPath);
         await Task.Run(() => CreatePmpFromDirectory(sourceDirectory, packagePath, cancellationToken), cancellationToken).ConfigureAwait(false);
         return packagePath;
@@ -1015,6 +1045,23 @@ public sealed class MainWindow : Window, IDisposable
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? "penumbra-mod" : cleaned;
+    }
+
+    private static string DisplayNameOrFallback(string? displayName, string fallback = "PmpShare tester") =>
+        string.IsNullOrWhiteSpace(displayName) ? fallback : displayName.Trim();
+
+    private string GetSenderDisplayName() =>
+        DisplayNameOrFallback(configuration.DisplayName, DisplayNameOrFallback(getLocalCharacterName()));
+
+    private void EnsureDefaultDisplayName(string localCharacterName)
+    {
+        if (!string.IsNullOrWhiteSpace(configuration.DisplayName) || string.IsNullOrWhiteSpace(localCharacterName))
+        {
+            return;
+        }
+
+        configuration.DisplayName = localCharacterName.Trim();
+        configuration.Save();
     }
 
     private static bool IsSubpathOf(string childPath, string parentPath)
@@ -1075,6 +1122,23 @@ public sealed class MainWindow : Window, IDisposable
             if (File.Exists(path))
             {
                 File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string? path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
             }
         }
         catch (IOException)

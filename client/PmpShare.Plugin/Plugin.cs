@@ -28,6 +28,9 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService]
     internal static IChatGui ChatGui { get; private set; } = null!;
 
+    [PluginService]
+    internal static IObjectTable ObjectTable { get; private set; } = null!;
+
     public Configuration Configuration { get; }
 
     private readonly WindowSystem windowSystem = new("PmpShare");
@@ -49,7 +52,7 @@ public sealed class Plugin : IDalamudPlugin
 
         apiClient = new PmpShareApiClient(httpClient);
         penumbraIpcService = new PenumbraIpcService(PluginInterface);
-        mainWindow = new MainWindow(Configuration, apiClient, transferCrypto, penumbraIpcService);
+        mainWindow = new MainWindow(Configuration, apiClient, transferCrypto, penumbraIpcService, GetLocalCharacterName);
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -85,6 +88,9 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow.Toggle();
         ResetInboxPolling();
     }
+
+    private static string GetLocalCharacterName() =>
+        ObjectTable.LocalPlayer?.Name.TextValue ?? string.Empty;
 
     private async Task PollInboxLoopAsync(CancellationToken cancellationToken)
     {

@@ -24,6 +24,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public string X25519PrivateKeyBase64 { get; set; } = string.Empty;
 
+    public string DisplayName { get; set; } = string.Empty;
+
     public string PenumbraExportFolder { get; set; } = string.Empty;
 
     public bool AutoImportToPenumbraAfterReceive { get; set; }
