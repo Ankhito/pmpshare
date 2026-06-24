@@ -14,8 +14,8 @@ public sealed class MainWindow : Window, IDisposable
 {
     private const long MaxEncryptedSizeBytes = 500L * 1024L * 1024L;
     private const int TransferIdLength = 32;
-    private const string ApiBaseUrl = "https://pmpshare-api.contact-theankh.workers.dev";
-    private const string TesterKey = "clubnoiristhebest";
+    internal const string ApiBaseUrl = "https://pmpshare-api.contact-theankh.workers.dev";
+    internal const string TesterKey = "clubnoiristhebest";
 
     private readonly Configuration configuration;
     private readonly PmpShareApiClient apiClient;
@@ -76,6 +76,15 @@ public sealed class MainWindow : Window, IDisposable
     {
         operationCts?.Cancel();
         operationCts?.Dispose();
+    }
+
+    public void ApplyInboxSnapshotFromPoll(IReadOnlyList<SendRequest> requests)
+    {
+        inbox = requests.ToList();
+        var pendingCount = inbox.Count(request => string.Equals(request.Status, "pending", StringComparison.OrdinalIgnoreCase));
+        statusText = pendingCount == 0
+            ? "Inbox checked: no pending receive requests."
+            : $"Inbox checked: {pendingCount} pending receive request(s).";
     }
 
     public override void Draw()

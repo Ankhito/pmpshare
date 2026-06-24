@@ -21,6 +21,7 @@ Current command:
 - Creates a local PmpShare identity with a `ps_...` ID and X25519 keypair.
 - Copies a one-paste identity string in the format `ps_....publicKeyBase64`.
 - Can create and view Worker-backed send requests for manually added contacts.
+- Polls for pending inbox requests and prints a chat notification when a new receive request appears.
 - Wraps transfer passphrases locally with X25519 ECDH plus AES-GCM so accepted requests can download, decrypt, and verify without manual passphrase entry.
 
 ## What It Does Not Do Yet
