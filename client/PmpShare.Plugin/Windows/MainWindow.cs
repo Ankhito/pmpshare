@@ -670,6 +670,7 @@ public sealed class MainWindow : Window, IDisposable
             accepted.EncryptedPassphraseNonce);
         receiveResult = "Request accepted. Passphrase unwrapped locally; downloading transfer...";
         await DownloadDecryptAndVerifyAsync(cancellationToken).ConfigureAwait(false);
+        await apiClient.CompleteSendRequestAsync(ApiBaseUrl, TesterKey, request.RequestId, cancellationToken).ConfigureAwait(false);
         downloadPassphrase = string.Empty;
         await RefreshInboxAsync(cancellationToken, updateReceiveResult: false).ConfigureAwait(false);
     }

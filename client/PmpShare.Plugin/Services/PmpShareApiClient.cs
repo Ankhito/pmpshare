@@ -145,6 +145,19 @@ public sealed class PmpShareApiClient
         return await UpdateSendRequestAsync(baseUrl, testerKey, requestId, "decline", cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task CompleteSendRequestAsync(
+        string baseUrl,
+        string testerKey,
+        string requestId,
+        CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, BuildUri(baseUrl, $"/v1/send-requests/{requestId}/complete"));
+        AddTesterKey(message, testerKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessOrThrowAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<SendRequest> UpdateSendRequestAsync(
         string baseUrl,
         string testerKey,

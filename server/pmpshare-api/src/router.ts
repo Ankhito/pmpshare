@@ -11,6 +11,7 @@ import {
 import { errorResponse } from "./responses";
 import {
   acceptSendRequest,
+  completeSendRequest,
   createSendRequest,
   declineSendRequest,
   getInbox,
@@ -44,14 +45,18 @@ export async function route(request: Request, env: Env): Promise<Response> {
   }
 
   const sendRequestMatch = path.match(
-    /^\/v1\/send-requests\/([^/]+)\/(accept|decline)$/,
+    /^\/v1\/send-requests\/([^/]+)\/(accept|decline|complete)$/,
   );
   if (sendRequestMatch && request.method === "POST") {
     const authError = requireTesterKey(request, env);
     if (authError) return authError;
-    return sendRequestMatch[2] === "accept"
-      ? acceptSendRequest(env, sendRequestMatch[1])
-      : declineSendRequest(env, sendRequestMatch[1]);
+    if (sendRequestMatch[2] === "accept") {
+      return acceptSendRequest(env, sendRequestMatch[1]);
+    }
+    if (sendRequestMatch[2] === "complete") {
+      return completeSendRequest(env, sendRequestMatch[1]);
+    }
+    return declineSendRequest(env, sendRequestMatch[1]);
   }
 
   const match = path.match(

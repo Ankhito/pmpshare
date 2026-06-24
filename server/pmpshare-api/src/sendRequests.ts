@@ -1,7 +1,7 @@
 import { createTransferId } from "./ids";
-import { sendRequestPath } from "./paths";
+import { metadataPath, sendRequestPath } from "./paths";
 import { errorResponse, jsonResponse } from "./responses";
-import type { Env, SendRequestMetadata } from "./types";
+import type { Env, SendRequestMetadata, TransferMetadata } from "./types";
 
 const DEFAULT_SEND_REQUEST_EXPIRY_SECONDS = 3 * 60 * 60;
 const MAX_SEND_REQUEST_EXPIRY_SECONDS = 24 * 60 * 60;
@@ -80,12 +80,44 @@ export async function getInbox(request: Request, env: Env): Promise<Response> {
       if (!metadata || metadata.recipientId !== recipientId) {
         continue;
       }
-      items.push(await markExpiredIfNeeded(env, metadata));
+      const current = await markExpiredIfNeeded(env, metadata);
+      if (await shouldListInInbox(env, current)) {
+        items.push(current);
+      }
     }
   } while (cursor);
 
   items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return jsonResponse({ requests: items });
+}
+
+async function shouldListInInbox(
+  env: Env,
+  metadata: SendRequestMetadata,
+): Promise<boolean> {
+  if (metadata.status === "pending") {
+    return true;
+  }
+
+  if (metadata.status !== "accepted") {
+    return false;
+  }
+
+  if (!metadata.transferId) {
+    return true;
+  }
+
+  const transfer = await loadTransferMetadata(env, metadata.transferId);
+  if (
+    transfer?.status === "completed" ||
+    transfer?.status === "deleted" ||
+    transfer?.status === "expired"
+  ) {
+    await env.PMP_BUCKET.delete(sendRequestPath(metadata.requestId));
+    return false;
+  }
+
+  return true;
 }
 
 export async function acceptSendRequest(
@@ -100,6 +132,32 @@ export async function declineSendRequest(
   requestId: string,
 ): Promise<Response> {
   return updateSendRequestStatus(env, requestId, "declined");
+}
+
+export async function completeSendRequest(
+  env: Env,
+  requestId: string,
+): Promise<Response> {
+  if (!/^[a-f0-9]{32}$/.test(requestId)) {
+    return errorResponse(400, "Invalid send request id.", "invalid_request_id");
+  }
+
+  const metadata = await loadSendRequest(env, sendRequestPath(requestId));
+  if (!metadata) {
+    return errorResponse(404, "Send request was not found.", "not_found");
+  }
+
+  const current = await markExpiredIfNeeded(env, metadata);
+  if (current.status !== "pending" && current.status !== "accepted") {
+    return errorResponse(
+      409,
+      `Send request is already ${current.status}.`,
+      "invalid_request_status",
+    );
+  }
+
+  await env.PMP_BUCKET.delete(sendRequestPath(requestId));
+  return jsonResponse({ requestId, status: "completed" });
 }
 
 async function updateSendRequestStatus(
@@ -162,6 +220,17 @@ async function saveSendRequest(
       httpMetadata: { contentType: "application/json; charset=utf-8" },
     },
   );
+}
+
+async function loadTransferMetadata(
+  env: Env,
+  transferId: string,
+): Promise<TransferMetadata | null> {
+  const object = await env.PMP_BUCKET.get(metadataPath(transferId));
+  if (!object) {
+    return null;
+  }
+  return object.json<TransferMetadata>();
 }
 
 async function markExpiredIfNeeded(

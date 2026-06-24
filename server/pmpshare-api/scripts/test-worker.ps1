@@ -240,6 +240,53 @@ try {
     Assert-Equal $accepted.status "accepted" "Accepted send request status mismatch."
     Write-Host "[pass] accepted send request"
 
+    Write-Host "[test] POST /v1/send-requests/{id}/accept is retryable"
+    $acceptedAgain = Invoke-RestMethod `
+        -Method Post `
+        -Uri (Join-Url $BaseUrl "/v1/send-requests/$($sendRequest.requestId)/accept") `
+        -Headers $headers
+    Assert-Equal $acceptedAgain.status "accepted" "Retry accept send request status mismatch."
+    Write-Host "[pass] accepted send request retry"
+
+    Write-Host "[test] POST /v1/send-requests/{id}/complete"
+    $completedSendRequest = Invoke-RestMethod `
+        -Method Post `
+        -Uri (Join-Url $BaseUrl "/v1/send-requests/$($sendRequest.requestId)/complete") `
+        -Headers $headers
+    Assert-Equal $completedSendRequest.status "completed" "Completed send request status mismatch."
+    Write-Host "[pass] completed send request"
+
+    Write-Host "[test] completed send request is removed from inbox"
+    $inboxAfterComplete = Invoke-RestMethod `
+        -Method Get `
+        -Uri (Join-Url $BaseUrl "/v1/inbox?recipientId=$recipientId") `
+        -Headers $headers
+    if (($inboxAfterComplete.requests | Where-Object { $_.requestId -eq $sendRequest.requestId }).Count -ne 0) {
+        throw "Completed send request was still listed in inbox."
+    }
+    Write-Host "[pass] completed send request removed from inbox"
+
+    Write-Host "[test] declined send request is hidden from inbox"
+    $declineRequest = Invoke-RestMethod `
+        -Method Post `
+        -Uri (Join-Url $BaseUrl "/v1/send-requests") `
+        -Headers $headers `
+        -ContentType "application/json" `
+        -Body $sendRequestBody
+    $declinedRequest = Invoke-RestMethod `
+        -Method Post `
+        -Uri (Join-Url $BaseUrl "/v1/send-requests/$($declineRequest.requestId)/decline") `
+        -Headers $headers
+    Assert-Equal $declinedRequest.status "declined" "Declined send request status mismatch."
+    $inboxAfterDecline = Invoke-RestMethod `
+        -Method Get `
+        -Uri (Join-Url $BaseUrl "/v1/inbox?recipientId=$recipientId") `
+        -Headers $headers
+    if (($inboxAfterDecline.requests | Where-Object { $_.requestId -eq $declineRequest.requestId }).Count -ne 0) {
+        throw "Declined send request was still listed in inbox."
+    }
+    Write-Host "[pass] declined send request hidden from inbox"
+
     Invoke-ExpectHttpError `
         -StatusCode 401 `
         -Name "send request missing tester key" `
