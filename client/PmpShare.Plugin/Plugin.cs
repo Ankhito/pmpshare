@@ -12,6 +12,9 @@ namespace PmpShare.Plugin;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/pmpshare";
+    private static readonly TimeSpan ActiveInboxPollInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan IdleInboxPollInterval = TimeSpan.FromHours(1);
+    private const int EmptyPollsBeforeIdle = 3;
 
     [PluginService]
     internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
@@ -35,7 +38,9 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private readonly CancellationTokenSource inboxPollCts = new();
     private readonly HashSet<string> notifiedPendingRequestIds = [];
+    private readonly SemaphoreSlim inboxPollWake = new(0, 1);
     private Task? inboxPollTask;
+    private int emptyPollCount;
 
     public Plugin()
     {
@@ -68,25 +73,48 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();
         penumbraIpcService.Dispose();
+        inboxPollWake.Dispose();
         inboxPollCts.Dispose();
         httpClient.Dispose();
     }
 
     private void OnCommand(string command, string args) => ToggleMainUi();
 
-    private void ToggleMainUi() => mainWindow.Toggle();
+    private void ToggleMainUi()
+    {
+        mainWindow.Toggle();
+        ResetInboxPolling();
+    }
 
     private async Task PollInboxLoopAsync(CancellationToken cancellationToken)
     {
-        await PollInboxOnceAsync(cancellationToken).ConfigureAwait(false);
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
-        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        while (!cancellationToken.IsCancellationRequested)
         {
-            await PollInboxOnceAsync(cancellationToken).ConfigureAwait(false);
+            var hasPendingRequests = await PollInboxOnceAsync(cancellationToken).ConfigureAwait(false);
+            if (hasPendingRequests)
+            {
+                ResetInboxPolling();
+            }
+            else
+            {
+                emptyPollCount++;
+            }
+
+            var delay = emptyPollCount >= EmptyPollsBeforeIdle
+                ? IdleInboxPollInterval
+                : ActiveInboxPollInterval;
+            try
+            {
+                await inboxPollWake.WaitAsync(delay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
         }
     }
 
-    private async Task PollInboxOnceAsync(CancellationToken cancellationToken)
+    private async Task<bool> PollInboxOnceAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -97,13 +125,25 @@ public sealed class Plugin : IDalamudPlugin
                 cancellationToken).ConfigureAwait(false);
             mainWindow.ApplyInboxSnapshotFromPoll(requests);
             NotifyNewPendingRequests(requests);
+            return requests.Any(request => string.Equals(request.Status, "pending", StringComparison.OrdinalIgnoreCase));
         }
         catch (OperationCanceledException)
         {
+            return false;
         }
         catch (Exception ex)
         {
             Log.Verbose(ex, "PmpShare inbox poll failed.");
+            return false;
+        }
+    }
+
+    private void ResetInboxPolling()
+    {
+        emptyPollCount = 0;
+        if (inboxPollWake.CurrentCount == 0)
+        {
+            inboxPollWake.Release();
         }
     }
 
