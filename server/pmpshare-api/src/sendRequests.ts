@@ -117,7 +117,11 @@ async function updateSendRequestStatus(
   }
 
   const current = await markExpiredIfNeeded(env, metadata);
-  if (current.status !== "pending") {
+  if (status === "accepted" && current.status === "accepted") {
+    return jsonResponse(current);
+  }
+
+  if (current.status !== "pending" && !(status === "declined" && current.status === "accepted")) {
     return errorResponse(
       409,
       `Send request is already ${current.status}.`,

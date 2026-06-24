@@ -307,12 +307,14 @@ public sealed class MainWindow : Window, IDisposable
         foreach (var request in inbox)
         {
             ImGui.TextWrapped($"{request.SenderDisplayName ?? request.SenderId}: {request.Status} {request.Message}");
-            if (request.Status == "pending" && ImGui.Button($"Accept##{request.RequestId}"))
+            var canReceiveRequest = request.Status is "pending" or "accepted";
+            var acceptLabel = request.Status == "accepted" ? "Retry receive" : "Accept";
+            if (canReceiveRequest && ImGui.Button($"{acceptLabel}##{request.RequestId}"))
             {
                 StartOperation(async token => await AcceptRequestAsync(request, token).ConfigureAwait(false));
             }
             ImGui.SameLine();
-            if (request.Status == "pending" && ImGui.Button($"Decline##{request.RequestId}"))
+            if (canReceiveRequest && ImGui.Button($"Decline##{request.RequestId}"))
             {
                 StartOperation(async token => await DeclineRequestAsync(request, token).ConfigureAwait(false));
             }
@@ -792,7 +794,8 @@ public sealed class MainWindow : Window, IDisposable
         AddPenumbraModPathCandidate(candidates, selectedModDirectory, modRoot);
 
         resolvedPath = candidates
-            .Select(Path.GetFullPath)
+            .Select(TryGetFullPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
             .FirstOrDefault(Directory.Exists) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(resolvedPath))
         {
@@ -1011,9 +1014,17 @@ public sealed class MainWindow : Window, IDisposable
         var packageDirectory = Path.Combine(stagingDirectory, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(packageDirectory);
         var packageName = $"{SafeFileName(StripKnownModSuffix(selectedModDirectory))}.pmp";
-        var packagePath = Path.Combine(packageDirectory, packageName);
-        await Task.Run(() => CreatePmpFromDirectory(sourceDirectory, packagePath, cancellationToken), cancellationToken).ConfigureAwait(false);
-        return packagePath;
+        try
+        {
+            var packagePath = Path.Combine(packageDirectory, packageName);
+            await Task.Run(() => CreatePmpFromDirectory(sourceDirectory, packagePath, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return packagePath;
+        }
+        catch
+        {
+            TryDeleteDirectory(packageDirectory);
+            throw;
+        }
     }
 
     private static void CreatePmpFromDirectory(string sourceDirectory, string packagePath, CancellationToken cancellationToken)
@@ -1098,6 +1109,18 @@ public sealed class MainWindow : Window, IDisposable
 
         configuration.DisplayName = localCharacterName.Trim();
         configuration.Save();
+    }
+
+    private static string TryGetFullPath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return string.Empty;
+        }
     }
 
     private static bool IsSubpathOf(string childPath, string parentPath)

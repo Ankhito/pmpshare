@@ -45,6 +45,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly CancellationTokenSource inboxPollCts = new();
     private readonly HashSet<string> notifiedPendingRequestIds = [];
     private readonly SemaphoreSlim inboxPollWake = new(0, 1);
+    private readonly object inboxPollWakeLock = new();
     private Task? inboxPollTask;
     private int emptyPollCount;
 
@@ -72,6 +73,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         inboxPollCts.Cancel();
+        WakeInboxPoller();
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
@@ -79,6 +81,14 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();
         penumbraIpcService.Dispose();
+        try
+        {
+            inboxPollTask?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (AggregateException ex)
+        {
+            ex.Handle(inner => inner is OperationCanceledException or ObjectDisposedException);
+        }
         inboxPollWake.Dispose();
         inboxPollCts.Dispose();
         httpClient.Dispose();
@@ -153,9 +163,17 @@ public sealed class Plugin : IDalamudPlugin
     private void ResetInboxPolling()
     {
         emptyPollCount = 0;
-        if (inboxPollWake.CurrentCount == 0)
+        WakeInboxPoller();
+    }
+
+    private void WakeInboxPoller()
+    {
+        lock (inboxPollWakeLock)
         {
-            inboxPollWake.Release();
+            if (inboxPollWake.CurrentCount == 0)
+            {
+                inboxPollWake.Release();
+            }
         }
     }
 
