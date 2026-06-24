@@ -18,6 +18,7 @@ Current command:
 - Calls `/complete` only after decrypt succeeds and SHA-256 matches, which deletes the server blob.
 - Can import a verified received `.pmp` through Penumbra IPC.
 - Can list, search, package, and send installed Penumbra mods without requiring a manual export first.
+- Resolves Penumbra relative mod paths against the mod root when packaging selected mods.
 - Keeps the main tabs pinned while long tab content scrolls underneath.
 - Creates a local PmpShare identity with a `ps_...` ID and X25519 keypair.
 - Copies a one-paste identity string in the format `ps_....publicKeyBase64`.

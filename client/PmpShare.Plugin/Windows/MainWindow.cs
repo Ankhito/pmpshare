@@ -766,25 +766,46 @@ public sealed class MainWindow : Window, IDisposable
 
     private bool ValidateSelectedPenumbraMod()
     {
-        if (string.IsNullOrWhiteSpace(selectedModDirectory) || string.IsNullOrWhiteSpace(selectedModPath))
+        if (!TryResolveSelectedPenumbraModPath(out _, out var error))
         {
-            uploadResult = "Select an installed Penumbra mod first.";
+            uploadResult = error;
             return false;
         }
 
-        if (!Directory.Exists(selectedModPath))
+        return true;
+    }
+
+    private bool TryResolveSelectedPenumbraModPath(out string resolvedPath, out string error)
+    {
+        resolvedPath = string.Empty;
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(selectedModDirectory))
         {
-            uploadResult = "Selected Penumbra mod folder was not found. Refresh Penumbra status and select it again.";
+            error = "Select an installed Penumbra mod first.";
             return false;
         }
 
         var modRoot = penumbra.CurrentStatus.ModRoot;
-        if (!string.IsNullOrWhiteSpace(modRoot) && !IsSubpathOf(selectedModPath, modRoot))
+        var candidates = new List<string>();
+        AddPenumbraModPathCandidate(candidates, selectedModPath, modRoot);
+        AddPenumbraModPathCandidate(candidates, selectedModDirectory, modRoot);
+
+        resolvedPath = candidates
+            .Select(Path.GetFullPath)
+            .FirstOrDefault(Directory.Exists) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(resolvedPath))
         {
-            uploadResult = "Selected Penumbra mod path is outside the Penumbra mod root.";
+            error = "Selected Penumbra mod folder was not found. Refresh Penumbra status and select it again.";
             return false;
         }
 
+        if (!string.IsNullOrWhiteSpace(modRoot) && !IsSubpathOf(resolvedPath, modRoot))
+        {
+            error = "Selected Penumbra mod path is outside the Penumbra mod root.";
+            return false;
+        }
+
+        selectedModPath = resolvedPath;
         return true;
     }
 
@@ -977,9 +998,10 @@ public sealed class MainWindow : Window, IDisposable
 
     private async Task<string> PackageSelectedPenumbraModAsync(CancellationToken cancellationToken)
     {
-        if (!ValidateSelectedPenumbraMod())
+        if (!TryResolveSelectedPenumbraModPath(out var sourceDirectory, out var error))
         {
-            throw new InvalidOperationException(uploadResult);
+            uploadResult = error;
+            throw new InvalidOperationException(error);
         }
 
         SetOperationProgress("Packaging selected Penumbra mod", 0.05f);
@@ -989,7 +1011,6 @@ public sealed class MainWindow : Window, IDisposable
         Directory.CreateDirectory(packageDirectory);
         var packageName = $"{SafeFileName(StripKnownModSuffix(selectedModDirectory))}.pmp";
         var packagePath = Path.Combine(packageDirectory, packageName);
-        var sourceDirectory = Path.GetFullPath(selectedModPath);
         await Task.Run(() => CreatePmpFromDirectory(sourceDirectory, packagePath, cancellationToken), cancellationToken).ConfigureAwait(false);
         return packagePath;
     }
@@ -1045,6 +1066,20 @@ public sealed class MainWindow : Window, IDisposable
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? "penumbra-mod" : cleaned;
+    }
+
+    private static void AddPenumbraModPathCandidate(List<string> candidates, string path, string modRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        candidates.Add(path);
+        if (!Path.IsPathRooted(path) && !string.IsNullOrWhiteSpace(modRoot))
+        {
+            candidates.Add(Path.Combine(modRoot, path));
+        }
     }
 
     private static string DisplayNameOrFallback(string? displayName, string fallback = "PmpShare tester") =>
